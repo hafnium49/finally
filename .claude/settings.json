@@ -4,16 +4,4 @@
     "context7@claude-plugins-official": true,
     "playwright@claude-plugins-official": true
   }
-  // "hooks": {
-  //     "Stop": [
-  //         {
-  //             "hooks": [
-  //                 {
-  //                     "type": "command",
-  //                     "command": "codex exec \"Review changes since last commit and write results to a file name"
-  //                 }
-  //             ]
-  //         }
-  //     ]
-  // }
 }
