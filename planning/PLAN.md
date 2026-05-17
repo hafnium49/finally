@@ -509,6 +509,8 @@ All scripts should be idempotent — safe to run multiple times.
 
 The container is designed to deploy to AWS App Runner, Render, or any container platform. A Terraform configuration for App Runner may be provided in a `deploy/` directory as a stretch goal, but is not part of the core build.
 
+> ⚠️ **Local-only by default — do not expose publicly without auth.** FinAlly has zero authentication: anyone who reaches the URL gets full trading access, the ability to spend OpenRouter credits via the chat endpoint, and the ability to mutate the database. The default Docker setup is intended for `localhost` use. Before publishing the container to any reachable host, add at minimum: (1) a shared-secret header or basic-auth shim on `/api/*`, (2) a rate limit on `POST /api/chat`, and (3) restrict CORS / origin checks. Treat any cloud target as a personal demo behind that shim, not a multi-tenant service.
+
 ---
 
 ## 12. Testing Strategy
@@ -552,39 +554,54 @@ This section captures questions, ambiguities, and simplification opportunities s
 ### 13.1 Open Questions (need a decision before implementation)
 
 1. **LLM conversation context window.** Section 9 says "loads recent conversation history" but never bounds it. Unbounded history grows token cost on every call. Specify a policy: last N messages (e.g., 20), last N tokens (e.g., 4k), or a summarization scheme.
+   - **→ Resolved in §9 "Conversation Context Window":** last 10 messages verbatim + rolling LLM-generated summary of older messages.
 
 2. **Price used for LLM-initiated trades.** When the LLM returns `trades: [{ticker, side, quantity}]`, what price fills the order? The latest in the price cache *at execution time*? The price snapshot loaded into the LLM's context? These can differ by several seconds. Recommendation: fill at latest-cache price, and include the actual fill price in the response so the chat panel can show it.
+   - **→ Resolved in §9 "Trade Execution & Validation":** fill at latest cache price; `fill_price` included in the `actions` entry.
 
 3. **Trade validation timing.** Section 9 says invalid trades cause an error "included in the chat response so the LLM can inform the user." But the LLM has already finished responding — there is no second pass. Clarify: the failed trade is appended to the `actions` array with an `error` field, and the chat UI surfaces it inline. The LLM's text won't mention the failure (it didn't know).
+   - **→ Resolved in §9 "Trade Execution & Validation" and "Backend Response & `actions` Shape":** errors captured as `status: "error"` entries with `error` / `error_message` fields.
 
 4. **Arbitrary watchlist tickers under the simulator.** Section 6 lists 10 seeded tickers with GBM params. If a user (or the LLM) adds `PYPL` via `POST /api/watchlist`, what does the simulator do? Options: (a) reject unknown tickers when in simulator mode, (b) auto-generate a seed price and default GBM params, (c) require a fixed allowlist. Pick one and document.
+   - **→ Resolved in §6 "Simulator (Default)":** auto-generate a plausible seed price and default GBM params.
 
 5. **Main chart history source.** The "Main chart area" (Section 10) shows "price over time" for the selected ticker. There is no DB table for tick history. Is this chart also accumulated from SSE since page load (like sparklines)? If so, it will be empty/short on a fresh load — state that explicitly. If not, specify the source.
+   - **→ Resolved in §7 (new `price_ticks` table), §8 (new `GET /api/prices/history/{ticker}`), §10 (main chart loads history then appends SSE).**
 
 6. **Database init point.** Section 7 says "on startup (or first request)" — pick one. FastAPI lifespan startup is reliable and runs once; first-request init forces a check in every handler and adds a cold-start penalty. Recommendation: lifespan startup only.
+   - **→ Resolved in §7 "SQLite with Lazy Initialization":** FastAPI lifespan startup hook only.
 
 7. **Concurrent trade safety.** Single-user, but the UI's Buy button and an LLM auto-trade can fire near-simultaneously. Two read-modify-write paths on `cash_balance` and `positions` can race in Python before SQLite sees them. Specify: trades go through a single `asyncio.Lock` (or per-user lock keyed on `user_id`).
+   - **→ Resolved in §7 "Concurrent Trade Safety":** per-user `asyncio.Lock` from a `dict[str, asyncio.Lock]`.
 
 8. **Daily change % anchor.** Watchlist shows "daily change %" — what's the baseline? Simulator has no concept of "previous close." Options: (a) use the first price observed at process start, (b) reset at UTC midnight, (c) drop the column and rely on the sparkline + flash for movement signaling. (c) is the honest simplification.
+   - **→ Resolved in §10 "Watchlist panel":** first-observed-price session anchor (resets on backend restart).
 
 9. **`quantity` as REAL in positions/trades.** Is fractional share trading intended? If only whole shares are supported, INTEGER would be more appropriate and avoids floating-point rounding issues in P&L calculations. If REAL is intentional, the trade validation section should mention whether fractional quantities are accepted.
-   - **ANSWER:** Yes, fractional shares SHOULD be supported.
+   - **ANSWER:** Yes, fractional shares SHOULD be supported. (Already reflected in §7 schema as `REAL`.)
 
 ### 13.2 Inconsistencies & Gaps
 
 1. **Directory structure is out of date with the implemented backend.** Section 4 describes `backend/db/` for schemas, but the actual layout (`backend/app/market/`) follows an `app/` package convention. Update the tree to reflect `backend/app/{market,db,api,llm}/...` (or whatever the agreed layout becomes) so future agents don't re-invent it.
+   - **→ Resolved in §4:** tree updated to `backend/app/{market,db,portfolio,chat,api}/` with matching `tests/` layout.
 
 2. **Cloud-deployment auth gap.** Section 11 mentions AWS App Runner / Render as stretch goals. With zero auth, any URL discovery = full trading access + LLM token spend on your key. Either call this out as "local-only — do not expose publicly" or specify a minimal auth shim (basic auth, a shared secret header) before any cloud target.
+   - **→ Resolved in §11 "Optional Cloud Deployment":** explicit warning block; minimum-shim requirements listed.
 
 3. **`backend/db/` vs `db/` collision.** Section 4 has both — one is "schema definitions," the other is the runtime SQLite mount. Easy to confuse. Rename one (e.g., `backend/app/db/` for code; `data/` at root for the volume mount).
+   - **→ Resolved in §4:** clarifying note distinguishes `backend/app/db/` (code) from `db/` at root (runtime mount). Names left as-is to avoid touching the existing runtime path.
 
 4. **Color scheme is decorative-only.** Section 2 lists Yellow/Blue/Purple but never says where they appear (buttons? accents? charts?). Either map each color to a UI role or drop the list.
+   - **→ Resolved in §2 "Color Scheme":** each color mapped to a concrete UI role.
 
 5. **SSE cadence vs. Massive poll cadence.** Section 6 says SSE pushes "at a regular cadence (~500ms)" while Massive polls every 15s on the free tier. Pushing unchanged prices 30× per real update wastes bandwidth and forces redundant flash logic on the client. The implemented `PriceCache` already uses version-based change detection — surface this in the plan: **SSE pushes only when a price changes** (with a periodic keepalive comment for connection liveness).
+   - **→ Resolved in §6 "SSE Streaming":** push-on-change with periodic keepalive comments documented.
 
 6. **`actions` field semantics.** `chat_messages.actions` is described as "trades executed, watchlist changes made." Define the JSON shape: success vs. error per item, fill price, resulting cash balance, etc. Otherwise different agents will invent different shapes.
+   - **→ Resolved in §9 "Backend Response & `actions` Shape":** concrete JSON example and field reference.
 
 7. **`portfolio_snapshots` retention.** Recording every 30s for an always-on container = ~1M rows/year. Not catastrophic on SQLite but worth a sentence: "no retention policy in v1; if needed, downsample to 5-minute aggregates beyond 24h."
+   - **→ Resolved in §7 `portfolio_snapshots`:** retention note added.
 
 ### 13.3 Simplification Opportunities
 
