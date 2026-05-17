@@ -111,16 +111,20 @@ class TestSimulatorDataSource:
         await source.stop()
 
     async def test_custom_update_interval(self):
-        """Test using a custom update interval."""
+        """Test that a faster update interval causes the cache version to advance.
+
+        With push-on-change semantics (cache only bumps on a different rounded
+        price), AAPL's sub-cent moves may round-equal across short windows. TSLA's
+        higher volatility (sigma=0.50) makes the rounded-change event reliable.
+        """
         cache = PriceCache()
-        source = SimulatorDataSource(price_cache=cache, update_interval=0.01)
-        await source.start(["AAPL"])
+        source = SimulatorDataSource(price_cache=cache, update_interval=0.005)
+        await source.start(["TSLA"])
 
         initial_version = cache.version
-        await asyncio.sleep(0.05)  # Should get ~5 updates
+        await asyncio.sleep(0.25)  # ~50 ticks; expected real changes >> 1
 
-        # Should have multiple updates with fast interval
-        assert cache.version > initial_version + 2
+        assert cache.version > initial_version
 
         await source.stop()
 
@@ -128,9 +132,7 @@ class TestSimulatorDataSource:
         """Test creating source with custom event probability."""
         cache = PriceCache()
         # Very high event probability for testing
-        source = SimulatorDataSource(
-            price_cache=cache, update_interval=0.1, event_probability=1.0
-        )
+        source = SimulatorDataSource(price_cache=cache, update_interval=0.1, event_probability=1.0)
         await source.start(["AAPL"])
 
         # Just verify it starts and stops cleanly

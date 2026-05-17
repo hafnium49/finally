@@ -233,18 +233,11 @@ es.onmessage = (event) => {
 
 ### Push-on-change, not push-on-tick
 
-Even though `_generate_events` wakes every 500 ms, **it only yields when `cache.version` has advanced**. With the Massive free tier (15 s polls), the client receives one event per 15 s, not 30 redundant frames in the gap.
+Even though `_generate_events` wakes every 500 ms, **it only yields when `cache.version` has advanced**. With the Massive free tier (15 s polls), the client receives one event per 15 s, not 30 redundant frames in the gap. The cache itself only bumps `version` when the rounded price differs from the previous, so a Massive poll that returns an identical `last_trade.price` does not cause a redundant SSE frame either.
 
-### Gap to fix: keepalive comments
+### Keepalive comments
 
-PLAN.md §6 requires a periodic SSE keepalive comment (`: keepalive\n\n` every ~15 s) to prevent intermediaries from closing idle connections. The shipped `stream.py` does not emit this; a single-page demo on `localhost` doesn't hit the issue. When deploying behind any proxy (App Runner, Cloudflare, nginx), add it inside the loop:
-
-```python
-# Once per ~15s of idle (no version change), emit a comment line
-if time_since_last_yield > 15:
-    yield ": keepalive\n\n"
-    time_since_last_yield = 0
-```
+After `keepalive_seconds` (default 15 s) of idle — no version change — `_generate_events` emits a single `: keepalive\n\n` SSE comment line. SSE comments are silently ignored by `EventSource` clients but keep the connection alive through intermediaries (nginx, App Runner, Cloudflare) that close idle TCP connections. The keepalive cadence is independent of the wake interval.
 
 ## Historical-Price Endpoint Backing
 
@@ -315,11 +308,12 @@ Coverage matrix (mirrors `backend/tests/market/`):
 | Module | Test file | What it pins |
 |---|---|---|
 | `models.py` | `test_models.py` | Property correctness (direction, change_percent, to_dict round-trip) |
-| `cache.py` | `test_cache.py` | Threadsafe `update`, version counter advances exactly on `update`/`remove`, `get_all` returns a copy |
-| `simulator.py` | `test_simulator.py`, `test_simulator_source.py` | GBM math, Cholesky rebuild, lifecycle, cache seeding on start |
-| `massive_client.py` | `test_massive.py` | Snapshot parsing, malformed-response skip, async loop survives exceptions |
+| `cache.py` | `test_cache.py` | Threadsafe `update` (multi-thread hammer), version bumps only on rounded-price change, `timestamp=0.0` preserved, `get_all` returns a copy |
+| `simulator.py` | `test_simulator.py`, `test_simulator_source.py` | GBM math, Cholesky rebuild, lifecycle, cache seeding on start, unknown-ticker price range matches PLAN.md ($20–$400) |
+| `massive_client.py` | `test_massive.py` | Snapshot parsing, malformed-response skip, async loop survives exceptions, ticker case-normalization in `start`/`add`/`remove`, poll loop fires repeatedly, `_poll_once` snapshots `_tickers` before the worker thread call |
 | `factory.py` | `test_factory.py` | Routes on `MASSIVE_API_KEY`, treats whitespace as empty |
-| `stream.py` | (covered in integration tests) | Push-on-change, disconnect cleanup |
+| `stream.py` | `test_stream.py` | Each `create_stream_router` call returns an independent router (no module-level singleton), push-on-change behavior, keepalive comment after idle, disconnect cleanup, empty-cache short-circuit |
+| ABC contract | `test_interface_conformance.py` | Both implementations honor the `MarketDataSource` interface (lifecycle, `get_tickers`, async signatures) |
 
 ## Related Documents
 

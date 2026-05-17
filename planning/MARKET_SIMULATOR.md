@@ -102,7 +102,7 @@ SEED_PRICES = {
 }
 ```
 
-**Unknown tickers** (added via `POST /api/watchlist` or by the LLM) get a seed price randomly drawn from `random.uniform(50.0, 300.0)` and default GBM params (`sigma=0.25, mu=0.05`). This matches PLAN.md §6: the simulator accepts any ticker symbol and treats it as a generic mid-cap equity from that point on.
+**Unknown tickers** (added via `POST /api/watchlist` or by the LLM) get a seed price randomly drawn from `random.uniform(UNKNOWN_TICKER_PRICE_MIN, UNKNOWN_TICKER_PRICE_MAX)` — currently `$20.00–$400.00` per PLAN.md §6 — and default GBM params (`sigma=0.25, mu=0.05`). The simulator accepts any ticker symbol and treats it as a generic mid-cap equity from that point on.
 
 ## Per-Ticker Parameters
 
@@ -257,7 +257,7 @@ Two implementation details worth flagging:
 `add_ticker` and `remove_ticker` mutate `_tickers` and trigger a `_rebuild_cholesky()`. The matrix rebuild is O(n²) but `n` is small (< 50 even with generous LLM-driven watchlist growth), so the cost is negligible.
 
 When a ticker is added:
-- Seed price = `SEED_PRICES.get(ticker, random.uniform(50.0, 300.0))`
+- Seed price = `SEED_PRICES.get(ticker, random.uniform(UNKNOWN_TICKER_PRICE_MIN, UNKNOWN_TICKER_PRICE_MAX))` — `$20.00–$400.00` per PLAN.md §6
 - Params = `TICKER_PARAMS.get(ticker, dict(DEFAULT_PARAMS))` (`dict(...)` to avoid sharing the mutable default across tickers)
 - The simulator immediately seeds the cache so the new ticker has a price before its first GBM step
 

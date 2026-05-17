@@ -53,11 +53,13 @@ class TestGBMSimulator:
         sim.remove_ticker("NOPE")  # Should not raise
 
     def test_unknown_ticker_gets_random_seed_price(self):
-        """Test that unknown tickers get random seed prices."""
+        """Test that unknown tickers get random seed prices (PLAN.md §6: $20–$400)."""
+        from app.market.seed_prices import UNKNOWN_TICKER_PRICE_MAX, UNKNOWN_TICKER_PRICE_MIN
+
         sim = GBMSimulator(tickers=["ZZZZ"])
         price = sim.get_price("ZZZZ")
         assert price is not None
-        assert 50.0 <= price <= 300.0
+        assert UNKNOWN_TICKER_PRICE_MIN <= price <= UNKNOWN_TICKER_PRICE_MAX
 
     def test_empty_step(self):
         """Test stepping with no tickers."""
@@ -126,6 +128,6 @@ class TestGBMSimulator:
         result = sim.step()
         price_str = str(result["AAPL"])
         # Check that we have at most 2 decimal places
-        if '.' in price_str:
-            decimal_part = price_str.split('.')[1]
+        if "." in price_str:
+            decimal_part = price_str.split(".")[1]
             assert len(decimal_part) <= 2
