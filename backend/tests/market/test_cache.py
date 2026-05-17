@@ -101,3 +101,65 @@ class TestPriceCache:
         cache = PriceCache()
         update = cache.update("AAPL", 190.12345)
         assert update.price == 190.12
+
+    def test_session_anchor_set_on_first_update(self):
+        """Test that session anchor is recorded on first price update."""
+        cache = PriceCache()
+        cache.update("AAPL", 190.00)
+        assert cache.get_session_anchor("AAPL") == 190.00
+
+    def test_session_anchor_not_changed_on_subsequent_updates(self):
+        """Test that session anchor stays at the first price, not updated later."""
+        cache = PriceCache()
+        cache.update("AAPL", 190.00)
+        cache.update("AAPL", 200.00)
+        cache.update("AAPL", 180.00)
+        assert cache.get_session_anchor("AAPL") == 190.00
+
+    def test_session_anchor_none_for_unknown_ticker(self):
+        """Test that session anchor returns None for unknown tickers."""
+        cache = PriceCache()
+        assert cache.get_session_anchor("UNKNOWN") is None
+
+    def test_session_change_pct_up(self):
+        """Test session change percent when price is up."""
+        cache = PriceCache()
+        cache.update("AAPL", 100.00)
+        cache.update("AAPL", 110.00)
+        pct = cache.get_session_change_pct("AAPL")
+        assert pct == 10.0
+
+    def test_session_change_pct_down(self):
+        """Test session change percent when price is down."""
+        cache = PriceCache()
+        cache.update("AAPL", 100.00)
+        cache.update("AAPL", 90.00)
+        pct = cache.get_session_change_pct("AAPL")
+        assert pct == -10.0
+
+    def test_session_change_pct_flat(self):
+        """Test session change percent when price hasn't changed."""
+        cache = PriceCache()
+        cache.update("AAPL", 100.00)
+        pct = cache.get_session_change_pct("AAPL")
+        assert pct == 0.0
+
+    def test_session_change_pct_none_for_unknown(self):
+        """Test session change percent returns None for unknown ticker."""
+        cache = PriceCache()
+        assert cache.get_session_change_pct("UNKNOWN") is None
+
+    def test_session_anchor_cleared_on_remove(self):
+        """Test that removing a ticker clears its session anchor."""
+        cache = PriceCache()
+        cache.update("AAPL", 190.00)
+        cache.remove("AAPL")
+        assert cache.get_session_anchor("AAPL") is None
+
+    def test_session_anchor_reset_after_remove_and_readd(self):
+        """Test that re-adding a removed ticker gets a fresh session anchor."""
+        cache = PriceCache()
+        cache.update("AAPL", 190.00)
+        cache.remove("AAPL")
+        cache.update("AAPL", 200.00)  # Re-added at a new price
+        assert cache.get_session_anchor("AAPL") == 200.00
