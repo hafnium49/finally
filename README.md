@@ -13,13 +13,16 @@ This repo is mid-build. Only the **market data subsystem** is implemented:
 | Market data simulator (GBM) | Done |
 | Massive (Polygon.io) client | Done |
 | In-memory price cache | Done |
-| SSE streaming module | Done (not yet wired to an HTTP server) |
-| FastAPI HTTP layer | Not built |
+| SSE streaming module | Done |
+| SSE ↔ FastAPI wiring | Not built |
+| FastAPI HTTP layer | **Next up** — Not built |
 | SQLite schema + persistence | Not built |
 | Portfolio / trade execution | Not built |
 | LLM chat integration | Not built |
 | Frontend (Next.js) | Not built |
 | Dockerfile / start scripts | Not built |
+
+Market data subsystem ships with **73 tests at 84% coverage** — see [`planning/MARKET_DATA_SUMMARY.md`](planning/MARKET_DATA_SUMMARY.md) for module-level details.
 
 If you came here expecting a runnable trading app, **come back later**. If you're here to inspect the market data work or run its tests, read on.
 
