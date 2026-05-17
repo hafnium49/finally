@@ -10,7 +10,7 @@
               "hooks": [
                   {
                       "type": "command",
-                      "command": "codex exec \"Review changes since last commit and write results to a file named code-review-$(date +%Y%m%d-%H%M%S).md\" >/dev/null 2>&1 &"
+                      "command": "codex exec \"Review planning/PLAN.md and write results to a file named planning/plan-review-$(date +%Y%m%d-%H%M%S).md\" >/dev/null 2>&1 &"
                   }
               ]
           }
