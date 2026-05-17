@@ -454,3 +454,65 @@ The container is designed to deploy to AWS App Runner, Render, or any container 
 - Portfolio visualization: heatmap renders with correct colors, P&L chart has data points
 - AI chat (mocked): send a message, receive a response, trade execution appears inline
 - SSE resilience: disconnect and verify reconnection
+
+---
+
+## 13. Review Notes — Open Questions, Gaps, and Simplifications
+
+This section captures questions, ambiguities, and simplification opportunities surfaced during a documentation review. It is a working list — items should be triaged (answered, deferred, or rejected) before the next agent picks up implementation.
+
+### 13.1 Open Questions (need a decision before implementation)
+
+1. **LLM conversation context window.** Section 9 says "loads recent conversation history" but never bounds it. Unbounded history grows token cost on every call. Specify a policy: last N messages (e.g., 20), last N tokens (e.g., 4k), or a summarization scheme.
+
+2. **Price used for LLM-initiated trades.** When the LLM returns `trades: [{ticker, side, quantity}]`, what price fills the order? The latest in the price cache *at execution time*? The price snapshot loaded into the LLM's context? These can differ by several seconds. Recommendation: fill at latest-cache price, and include the actual fill price in the response so the chat panel can show it.
+
+3. **Trade validation timing.** Section 9 says invalid trades cause an error "included in the chat response so the LLM can inform the user." But the LLM has already finished responding — there is no second pass. Clarify: the failed trade is appended to the `actions` array with an `error` field, and the chat UI surfaces it inline. The LLM's text won't mention the failure (it didn't know).
+
+4. **Arbitrary watchlist tickers under the simulator.** Section 6 lists 10 seeded tickers with GBM params. If a user (or the LLM) adds `PYPL` via `POST /api/watchlist`, what does the simulator do? Options: (a) reject unknown tickers when in simulator mode, (b) auto-generate a seed price and default GBM params, (c) require a fixed allowlist. Pick one and document.
+
+5. **Main chart history source.** The "Main chart area" (Section 10) shows "price over time" for the selected ticker. There is no DB table for tick history. Is this chart also accumulated from SSE since page load (like sparklines)? If so, it will be empty/short on a fresh load — state that explicitly. If not, specify the source.
+
+6. **Database init point.** Section 7 says "on startup (or first request)" — pick one. FastAPI lifespan startup is reliable and runs once; first-request init forces a check in every handler and adds a cold-start penalty. Recommendation: lifespan startup only.
+
+7. **Concurrent trade safety.** Single-user, but the UI's Buy button and an LLM auto-trade can fire near-simultaneously. Two read-modify-write paths on `cash_balance` and `positions` can race in Python before SQLite sees them. Specify: trades go through a single `asyncio.Lock` (or per-user lock keyed on `user_id`).
+
+8. **Daily change % anchor.** Watchlist shows "daily change %" — what's the baseline? Simulator has no concept of "previous close." Options: (a) use the first price observed at process start, (b) reset at UTC midnight, (c) drop the column and rely on the sparkline + flash for movement signaling. (c) is the honest simplification.
+
+### 13.2 Inconsistencies & Gaps
+
+1. **Directory structure is out of date with the implemented backend.** Section 4 describes `backend/db/` for schemas, but the actual layout (`backend/app/market/`) follows an `app/` package convention. Update the tree to reflect `backend/app/{market,db,api,llm}/...` (or whatever the agreed layout becomes) so future agents don't re-invent it.
+
+2. **Cloud-deployment auth gap.** Section 11 mentions AWS App Runner / Render as stretch goals. With zero auth, any URL discovery = full trading access + LLM token spend on your key. Either call this out as "local-only — do not expose publicly" or specify a minimal auth shim (basic auth, a shared secret header) before any cloud target.
+
+3. **`backend/db/` vs `db/` collision.** Section 4 has both — one is "schema definitions," the other is the runtime SQLite mount. Easy to confuse. Rename one (e.g., `backend/app/db/` for code; `data/` at root for the volume mount).
+
+4. **Color scheme is decorative-only.** Section 2 lists Yellow/Blue/Purple but never says where they appear (buttons? accents? charts?). Either map each color to a UI role or drop the list.
+
+5. **SSE cadence vs. Massive poll cadence.** Section 6 says SSE pushes "at a regular cadence (~500ms)" while Massive polls every 15s on the free tier. Pushing unchanged prices 30× per real update wastes bandwidth and forces redundant flash logic on the client. The implemented `PriceCache` already uses version-based change detection — surface this in the plan: **SSE pushes only when a price changes** (with a periodic keepalive comment for connection liveness).
+
+6. **`actions` field semantics.** `chat_messages.actions` is described as "trades executed, watchlist changes made." Define the JSON shape: success vs. error per item, fill price, resulting cash balance, etc. Otherwise different agents will invent different shapes.
+
+7. **`portfolio_snapshots` retention.** Recording every 30s for an always-on container = ~1M rows/year. Not catastrophic on SQLite but worth a sentence: "no retention policy in v1; if needed, downsample to 5-minute aggregates beyond 24h."
+
+### 13.3 Simplification Opportunities
+
+1. **Drop `docker-compose.yml` at the project root.** Start/stop scripts run `docker run` directly. The compose file adds a second way to do the same thing with no extra functionality. (`test/docker-compose.test.yml` is separately justified.)
+
+2. **Collapse per-OS start scripts.** Today: `start_mac.sh`, `stop_mac.sh`, `start_windows.ps1`, `stop_windows.ps1`. The `_mac` suffix is also misleading (it works on Linux too). Suggest `start.sh` + `start.ps1` (and matching stop) — two files, not four.
+
+3. **Composite primary keys for `watchlist` and `positions`.** Both have a UUID `id` *and* a UNIQUE `(user_id, ticker)`. The UUID is never referenced anywhere — drop it, make `(user_id, ticker)` the PK.
+
+4. **Single `app_state` row instead of `users_profile`.** With one user, `users_profile` is a one-row table with one meaningful column (`cash_balance`). Could be a generic KV table. Counter-argument: keeping `users_profile` preserves the "future multi-user" symmetry already baked into other tables. Borderline — call it out, decide, move on.
+
+5. **Pin one chart library, not two.** Section 10 says "Lightweight Charts or Recharts." Lightweight Charts is purpose-built for financial data and handles tick streams well; Recharts is a general-purpose React library that struggles at high update rates. Pick Lightweight Charts (or commit to Recharts and accept the perf ceiling) so the Frontend Engineer doesn't relitigate this.
+
+6. **One write path for `portfolio_snapshots`.** Today: timed (every 30s) + on-trade. The on-trade write is redundant if the timer is running, and the timer is redundant if you snapshot lazily on read. Pick one: a single 30-second timer is the simplest, and a missed snapshot near a trade is invisible on a P&L line chart at that zoom level.
+
+7. **Drop the "daily change %" column** (see 13.1.8). Saves a column, an ambiguous anchor decision, and frontend logic.
+
+`★ Insight ─────────────────────────────────────`
+- The plan's biggest source of ambiguity is the **chat → trade execution boundary**: pricing, validation timing, error surfacing, and the `actions` JSON shape are all underspecified, and they're the contract between the LLM, the backend, and the chat UI. Nail that shape down before anyone writes the chat endpoint.
+- Several "future-proofing" choices (UUID PKs on uniquely-keyed tables, `user_id` everywhere) cost very little but pay off only if multi-user actually ships. Worth being honest about which of these are genuine extensibility and which are speculative.
+- SSE-on-change (not SSE-on-tick) is already how the market subsystem works, but the plan still describes the older "push every 500ms" model. Documenting the actual behavior closes a gap that would otherwise show up as redundant client-side animation logic.
+`─────────────────────────────────────────────────`
