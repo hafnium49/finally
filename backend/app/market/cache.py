@@ -25,20 +25,26 @@ class PriceCache:
 
         Automatically computes direction and change from the previous price.
         If this is the first update for the ticker, previous_price == price (direction='flat').
+
+        The version counter is bumped only when the rounded price actually
+        changes (or the ticker is first seen). This is what makes SSE
+        push-on-change rather than push-on-tick.
         """
         with self._lock:
-            ts = timestamp or time.time()
+            ts = time.time() if timestamp is None else timestamp
             prev = self._prices.get(ticker)
-            previous_price = prev.price if prev else price
+            new_price = round(price, 2)
+            previous_price = prev.price if prev else new_price
 
             update = PriceUpdate(
                 ticker=ticker,
-                price=round(price, 2),
-                previous_price=round(previous_price, 2),
+                price=new_price,
+                previous_price=previous_price,
                 timestamp=ts,
             )
             self._prices[ticker] = update
-            self._version += 1
+            if prev is None or prev.price != new_price:
+                self._version += 1
             return update
 
     def get(self, ticker: str) -> PriceUpdate | None:
