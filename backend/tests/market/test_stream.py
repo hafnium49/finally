@@ -1,6 +1,7 @@
 """Tests for SSE streaming router and event generator."""
 
 import asyncio
+from collections.abc import AsyncGenerator
 from unittest.mock import MagicMock
 
 import pytest
@@ -9,8 +10,10 @@ from fastapi import FastAPI
 from app.market.cache import PriceCache
 from app.market.stream import _generate_events, create_stream_router
 
+NEVER_DISCONNECT = 9999
 
-def _make_request(disconnect_after: int = 9999) -> MagicMock:
+
+def _make_request(disconnect_after: int = NEVER_DISCONNECT) -> MagicMock:
     """Build a fake FastAPI Request that disconnects after N calls to is_disconnected()."""
     calls = {"n": 0}
 
@@ -25,7 +28,9 @@ def _make_request(disconnect_after: int = 9999) -> MagicMock:
     return request
 
 
-async def _collect(gen, max_items: int, timeout: float = 1.0) -> list[str]:
+async def _collect(
+    gen: AsyncGenerator[str, None], max_items: int, timeout: float = 1.0
+) -> list[str]:
     """Drain an async generator until it terminates or yields max_items."""
     out: list[str] = []
     for _ in range(max_items):

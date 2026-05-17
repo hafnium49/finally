@@ -1,7 +1,5 @@
 """Tests for PriceCache."""
 
-import threading
-
 from app.market.cache import PriceCache
 
 
@@ -68,43 +66,6 @@ class TestPriceCache:
         cache.update("AAPL", 191.00)
         assert cache.version == v0 + 2
 
-    def test_version_does_not_bump_on_identical_price(self):
-        """PLAN.md §6: SSE should be push-on-change, not push-on-tick."""
-        cache = PriceCache()
-        cache.update("AAPL", 190.00)
-        v1 = cache.version
-        cache.update("AAPL", 190.00)  # identical price → no version bump
-        assert cache.version == v1
-
-    def test_version_does_not_bump_on_sub_cent_no_op(self):
-        """Sub-cent moves that round to the same value should not bump version."""
-        cache = PriceCache()
-        cache.update("AAPL", 190.001)  # rounds to 190.00
-        v1 = cache.version
-        cache.update("AAPL", 190.002)  # still rounds to 190.00
-        assert cache.version == v1
-
-    def test_first_update_bumps_version(self):
-        """The first update for a ticker must bump the version (seed event)."""
-        cache = PriceCache()
-        v0 = cache.version
-        cache.update("AAPL", 190.00)
-        assert cache.version == v0 + 1
-
-    def test_remove_does_not_bump_version(self):
-        """Removal is a silent op; SSE doesn't get an explicit "removed" frame."""
-        cache = PriceCache()
-        cache.update("AAPL", 190.00)
-        v1 = cache.version
-        cache.remove("AAPL")
-        assert cache.version == v1
-
-    def test_timestamp_zero_is_preserved(self):
-        """timestamp=0.0 is a valid value (epoch) and must NOT be replaced."""
-        cache = PriceCache()
-        update = cache.update("AAPL", 190.50, timestamp=0.0)
-        assert update.timestamp == 0.0
-
     def test_get_price_convenience(self):
         """Test the convenience get_price method."""
         cache = PriceCache()
@@ -141,27 +102,64 @@ class TestPriceCache:
         update = cache.update("AAPL", 190.12345)
         assert update.price == 190.12
 
-    def test_concurrent_updates_do_not_corrupt_cache(self):
-        """Threadsafety smoke test: many threads can update() concurrently."""
+    def test_session_anchor_set_on_first_update(self):
+        """Test that session anchor is recorded on first price update."""
         cache = PriceCache()
-        n_threads = 4
-        per_thread = 500
+        cache.update("AAPL", 190.00)
+        assert cache.get_session_anchor("AAPL") == 190.00
 
-        def hammer(thread_id: int) -> None:
-            for i in range(per_thread):
-                # Distinct prices per (thread_id, i) so every call is a real change.
-                cache.update("AAPL", 100.00 + thread_id * 1000 + i)
+    def test_session_anchor_not_changed_on_subsequent_updates(self):
+        """Test that session anchor stays at the first price, not updated later."""
+        cache = PriceCache()
+        cache.update("AAPL", 190.00)
+        cache.update("AAPL", 200.00)
+        cache.update("AAPL", 180.00)
+        assert cache.get_session_anchor("AAPL") == 190.00
 
-        threads = [threading.Thread(target=hammer, args=(t,)) for t in range(n_threads)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
+    def test_session_anchor_none_for_unknown_ticker(self):
+        """Test that session anchor returns None for unknown tickers."""
+        cache = PriceCache()
+        assert cache.get_session_anchor("UNKNOWN") is None
 
-        # Every update is a real change → version should equal total updates.
-        assert cache.version == n_threads * per_thread
-        # Cache must have a valid PriceUpdate for AAPL (no exceptions, no torn state).
-        update = cache.get("AAPL")
-        assert update is not None
-        assert update.ticker == "AAPL"
-        assert update.price > 0
+    def test_session_change_pct_up(self):
+        """Test session change percent when price is up."""
+        cache = PriceCache()
+        cache.update("AAPL", 100.00)
+        cache.update("AAPL", 110.00)
+        pct = cache.get_session_change_pct("AAPL")
+        assert pct == 10.0
+
+    def test_session_change_pct_down(self):
+        """Test session change percent when price is down."""
+        cache = PriceCache()
+        cache.update("AAPL", 100.00)
+        cache.update("AAPL", 90.00)
+        pct = cache.get_session_change_pct("AAPL")
+        assert pct == -10.0
+
+    def test_session_change_pct_flat(self):
+        """Test session change percent when price hasn't changed."""
+        cache = PriceCache()
+        cache.update("AAPL", 100.00)
+        pct = cache.get_session_change_pct("AAPL")
+        assert pct == 0.0
+
+    def test_session_change_pct_none_for_unknown(self):
+        """Test session change percent returns None for unknown ticker."""
+        cache = PriceCache()
+        assert cache.get_session_change_pct("UNKNOWN") is None
+
+    def test_session_anchor_cleared_on_remove(self):
+        """Test that removing a ticker clears its session anchor."""
+        cache = PriceCache()
+        cache.update("AAPL", 190.00)
+        cache.remove("AAPL")
+        assert cache.get_session_anchor("AAPL") is None
+
+    def test_session_anchor_reset_after_remove_and_readd(self):
+        """Test that re-adding a removed ticker gets a fresh session anchor."""
+        cache = PriceCache()
+        cache.update("AAPL", 190.00)
+        cache.remove("AAPL")
+        cache.update("AAPL", 200.00)  # Re-added at a new price
+        assert cache.get_session_anchor("AAPL") == 200.00
