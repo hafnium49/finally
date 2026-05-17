@@ -179,10 +179,15 @@ Both the simulator and the Massive client implement the same abstract interface.
 
 ### Shared Price Cache
 
-- A single background task (simulator or Massive poller) writes to an in-memory price cache
-- The cache holds the latest price, previous price, and timestamp for each ticker
-- SSE streams read from this cache and push updates to connected clients
-- This architecture supports future multi-user scenarios without changes to the data layer
+The in-memory `PriceCache` is the central fan-out point. It holds the latest price, previous price, and timestamp for each ticker, plus a version counter used for change detection.
+
+Three background tasks interact with it:
+
+1. **Price source** (simulator or Massive poller) — the *only* writer to the cache. Updates ticker prices and bumps the version counter on each change.
+2. **Tick-history persister** — reads from the cache every ~5s per ticker and appends to the `price_ticks` table (see §7). Independent of SSE cadence.
+3. **Portfolio snapshot writer** — reads from the cache (combined with `positions`) every 30s and appends to `portfolio_snapshots`.
+
+SSE connections read from the cache on each tick and push only when the version counter has advanced. This separation keeps producers, persisters, and consumers from coupling.
 
 ### SSE Streaming
 
@@ -264,7 +269,7 @@ Note: tick history is global (not per-user) because price data is the same for a
 - `user_id` TEXT (default: `"default"`)
 - `role` TEXT (`"user"` or `"assistant"`)
 - `content` TEXT
-- `actions` TEXT (JSON — trades executed, watchlist changes made; null for user messages)
+- `actions` TEXT (JSON — exact shape defined in §9 "Backend Response & `actions` Shape"; null for user messages)
 - `created_at` TEXT (ISO timestamp)
 
 ### Default Seed Data
@@ -292,9 +297,9 @@ Note: tick history is global (not per-user) because price data is the same for a
 ### Watchlist
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/watchlist` | Current watchlist tickers with latest prices |
-| POST | `/api/watchlist` | Add a ticker: `{ticker}` |
-| DELETE | `/api/watchlist/{ticker}` | Remove a ticker |
+| GET | `/api/watchlist` | Current watchlist. Each entry: `{ticker, price, session_anchor_price, change_pct}` — `session_anchor_price` is the first price the backend observed for that ticker at process start; `change_pct` is `(price - session_anchor_price) / session_anchor_price * 100` computed server-side so all clients agree. |
+| POST | `/api/watchlist` | Add a ticker: `{ticker}`. The simulator auto-generates seed price + GBM params if unknown (see §6); the Massive client accepts any valid Polygon ticker symbol. Validation rejects only non-alphabetic input. |
+| DELETE | `/api/watchlist/{ticker}` | Remove a ticker. |
 
 ### Chat
 | Method | Path | Description |
@@ -353,7 +358,7 @@ The LLM is instructed to respond with JSON matching this schema:
 {
   "message": "Your conversational response to the user",
   "trades": [
-    {"ticker": "AAPL", "side": "buy", "quantity": 10}
+    {"ticker": "AAPL", "side": "buy", "quantity": 10.5}
   ],
   "watchlist_changes": [
     {"ticker": "PYPL", "action": "add"}
@@ -362,8 +367,8 @@ The LLM is instructed to respond with JSON matching this schema:
 ```
 
 - `message` (required): The conversational text shown to the user
-- `trades` (optional): Array of trades to auto-execute. Each trade goes through the same validation as manual trades (sufficient cash for buys, sufficient shares for sells)
-- `watchlist_changes` (optional): Array of watchlist modifications
+- `trades` (optional): Array of trades to auto-execute. Each trade goes through the same validation as manual trades (sufficient cash for buys, sufficient shares for sells). `side` is `"buy"` or `"sell"`. `quantity` is a number; fractional shares are allowed (e.g., `10.5`).
+- `watchlist_changes` (optional): Array of watchlist modifications. `action` is `"add"` or `"remove"`.
 
 ### Backend Response & `actions` Shape
 
@@ -413,7 +418,7 @@ Trades specified by the LLM execute automatically — no confirmation dialog. Th
 - It creates an impressive, fluid demo experience
 - It demonstrates agentic AI capabilities — the core theme of the course
 
-If a trade fails validation (e.g., insufficient cash), the error is included in the chat response so the LLM can inform the user.
+Failure handling is covered by the **Trade Execution & Validation** subsection above: errors surface in the `actions` array, not in the LLM's prose (which was already written by the time validation ran).
 
 ### System Prompt Guidance
 
@@ -440,7 +445,7 @@ When `LLM_MOCK=true`, the backend returns deterministic mock responses instead o
 
 The frontend is a single-page application with a dense, terminal-inspired layout. The specific component architecture and layout system is up to the Frontend Engineer, but the UI should include these elements:
 
-- **Watchlist panel** — grid/table of watched tickers with: ticker symbol, current price (flashing green/red on change), daily change %, and a sparkline mini-chart (accumulated from SSE since page load). **Daily change %** uses a session anchor: the baseline is the first price the backend observed for that ticker at process start (the cache's initial value). The anchor resets whenever the backend restarts. This is honest about the absence of a real market open/close in the simulator and avoids a scheduled-reset job.
+- **Watchlist panel** — grid/table of watched tickers with: ticker symbol, current price (flashing green/red on change), session change % (`change_pct` from `GET /api/watchlist`), and a sparkline mini-chart (accumulated from SSE since page load). The session change % is computed server-side against a first-observed-price anchor that resets when the backend restarts — honest about the absence of a real market open/close in the simulator and avoiding a scheduled-reset job. The frontend displays the value as-is.
 - **Main chart area** — larger chart for the currently selected ticker, showing price over time. On selection, the frontend fetches `GET /api/prices/history/{ticker}?range=1h` (default) to populate history from the `price_ticks` table, then appends live ticks from the SSE stream. The user can switch the range to 6h / 24h / 7d. Clicking a ticker in the watchlist selects it here.
 - **Portfolio heatmap** — treemap visualization where each rectangle is a position, sized by portfolio weight, colored by P&L (green = profit, red = loss)
 - **P&L chart** — line chart showing total portfolio value over time, using data from `portfolio_snapshots`
@@ -481,13 +486,13 @@ FastAPI serves the static frontend files and all API routes on port 8000.
 
 ### Docker Volume
 
-The SQLite database persists via a named Docker volume:
+The SQLite database persists via a bind mount of the host `db/` directory into the container at `/app/db`. This keeps `finally.db` visible on the host (easy to back up, inspect, or reset by deleting the file) and matches the directory layout in §4.
 
 ```bash
-docker run -v finally-data:/app/db -p 8000:8000 --env-file .env finally
+docker run -v "$(pwd)/db":/app/db -p 8000:8000 --env-file .env finally
 ```
 
-The `db/` directory in the project root maps to `/app/db` in the container. The backend writes `finally.db` to this path.
+The backend writes `finally.db` to `/app/db/finally.db` inside the container, which is `./db/finally.db` on the host.
 
 ### Start/Stop Scripts
 
@@ -518,10 +523,12 @@ The container is designed to deploy to AWS App Runner, Render, or any container 
 ### Unit Tests (within `frontend/` and `backend/`)
 
 **Backend (pytest)**:
-- Market data: simulator generates valid prices, GBM math is correct, Massive API response parsing works, both implementations conform to the abstract interface
-- Portfolio: trade execution logic, P&L calculations, edge cases (selling more than owned, buying with insufficient cash, selling at a loss)
-- LLM: structured output parsing handles all valid schemas, graceful handling of malformed responses, trade validation within chat flow
-- API routes: correct status codes, response shapes, error handling
+- Market data: simulator generates valid prices, GBM math is correct, Massive API response parsing works, both implementations conform to the abstract interface, unknown-ticker seed/GBM auto-generation produces stable values
+- Price cache & SSE: version counter advances only on changed prices, SSE generator emits only on version advance, keepalive comments fire on idle connections
+- Tick history: `price_ticks` writer cadence is honored, retention pruner deletes rows older than 7 days, `GET /api/prices/history/{ticker}` returns rows in the requested range
+- Portfolio: trade execution logic, P&L calculations, edge cases (selling more than owned, buying with insufficient cash, selling at a loss), per-user `asyncio.Lock` serializes concurrent UI + LLM trades (race-condition test with two simultaneous `await`s)
+- LLM: structured output parsing handles all valid schemas, graceful handling of malformed responses, trade validation within chat flow, `actions` array shape matches §9 (success and error cases), context-window summarization fires when the verbatim window overflows
+- API routes: correct status codes, response shapes (including `change_pct` on `/api/watchlist`), error handling
 
 **Frontend (React Testing Library or similar)**:
 - Component rendering with mock data
