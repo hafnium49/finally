@@ -1,5 +1,6 @@
 """Tests for MassiveDataSource (mocked)."""
 
+import asyncio
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -199,3 +200,62 @@ class TestMassiveDataSource:
         assert cache.get_price("AAPL") == 190.50
 
         await source.stop()
+
+    async def test_start_normalizes_ticker_case(self):
+        """B4: start() must canonicalize tickers so add/remove behave consistently."""
+        cache = PriceCache()
+        source = MassiveDataSource(api_key="test-key", price_cache=cache, poll_interval=60.0)
+
+        with patch("app.market.massive_client.RESTClient"):
+            with patch.object(source, "_fetch_snapshots", return_value=[]):
+                await source.start(["aapl", "  googl  "])
+
+        # Both should be uppercased and trimmed.
+        assert source.get_tickers() == ["AAPL", "GOOGL"]
+
+        # Removing with the original lowercase form should still work.
+        await source.remove_ticker("aapl")
+        assert source.get_tickers() == ["GOOGL"]
+
+        await source.stop()
+
+    async def test_poll_loop_fires_repeatedly(self):
+        """Background poll loop wakes on its interval and runs multiple polls."""
+        cache = PriceCache()
+        source = MassiveDataSource(api_key="test-key", price_cache=cache, poll_interval=0.05)
+
+        call_count = {"n": 0}
+
+        def fetch(tickers):
+            call_count["n"] += 1
+            return [_make_snapshot("AAPL", 190.00 + call_count["n"] * 0.10, 1707580800000)]
+
+        with patch("app.market.massive_client.RESTClient"):
+            with patch.object(source, "_fetch_snapshots", side_effect=fetch):
+                await source.start(["AAPL"])
+                # start() does the first poll; wait for at least one loop iteration.
+                await asyncio.sleep(0.18)
+
+        assert call_count["n"] >= 2  # initial + at least one loop tick
+        await source.stop()
+
+    async def test_poll_once_passes_snapshotted_tickers(self):
+        """B5: _poll_once should snapshot self._tickers before the worker call."""
+        cache = PriceCache()
+        source = MassiveDataSource(api_key="test-key", price_cache=cache, poll_interval=60.0)
+        source._tickers = ["AAPL", "GOOGL"]
+        source._client = MagicMock()
+
+        seen_tickers: list[list[str]] = []
+
+        def fetch(tickers):
+            seen_tickers.append(list(tickers))
+            return []
+
+        with patch.object(source, "_fetch_snapshots", side_effect=fetch):
+            await source._poll_once()
+
+        assert seen_tickers == [["AAPL", "GOOGL"]]
+        # The snapshot must be independent of the live list — mutate after, no effect.
+        seen_tickers[0].append("MUTATED")
+        assert source._tickers == ["AAPL", "GOOGL"]

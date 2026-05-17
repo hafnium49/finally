@@ -20,6 +20,8 @@ from .seed_prices import (
     SEED_PRICES,
     TICKER_PARAMS,
     TSLA_CORR,
+    UNKNOWN_TICKER_PRICE_MAX,
+    UNKNOWN_TICKER_PRICE_MIN,
 )
 
 logger = logging.getLogger(__name__)
@@ -148,7 +150,11 @@ class GBMSimulator:
         if ticker in self._prices:
             return
         self._tickers.append(ticker)
-        self._prices[ticker] = SEED_PRICES.get(ticker, random.uniform(50.0, 300.0))
+        self._prices[ticker] = SEED_PRICES.get(
+            ticker, random.uniform(UNKNOWN_TICKER_PRICE_MIN, UNKNOWN_TICKER_PRICE_MAX)
+        )
+        # dict(DEFAULT_PARAMS) copies the dict so each unknown ticker gets its
+        # own mutable params, not a shared reference to the module-level dict.
         self._params[ticker] = TICKER_PARAMS.get(ticker, dict(DEFAULT_PARAMS))
 
     def _rebuild_cholesky(self) -> None:

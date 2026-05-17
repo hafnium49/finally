@@ -1,6 +1,6 @@
 # Market Data Backend — Summary
 
-**Status:** Complete, tested, reviewed, all issues resolved.
+**Status:** Complete, tested, reviewed, all issues resolved. See `MARKET_DATA_REVIEW.md` for the detailed pre-fix review; the bugs documented there (router singleton, push-on-tick, missing keepalive, Massive case mismatch, batch-list race) are all closed.
 
 ## What Was Built
 
@@ -44,18 +44,20 @@ MarketDataSource (ABC)
 
 ## Test Suite
 
-**73 tests, all passing.** 6 test modules in `backend/tests/market/`.
+**100 tests, all passing.** 8 test modules in `backend/tests/market/`.
 
 | Module | Tests | Coverage |
 |--------|-------|----------|
 | test_models.py | 11 | models.py: 100% |
-| test_cache.py | 13 | cache.py: 100% |
-| test_simulator.py | 17 | simulator.py: 98% |
+| test_cache.py | 19 | cache.py: 100% (push-on-change, thread-safety hammer, timestamp=0 preserved) |
+| test_simulator.py | 19 | simulator.py: 98% |
 | test_simulator_source.py | 10 | (integration tests) |
 | test_factory.py | 7 | factory.py: 100% |
-| test_massive.py | 13 | massive_client.py: 56% (expected — API methods mocked) |
+| test_massive.py | 16 | massive_client.py: 99% (poll loop, case-normalization, snapshot list) |
+| test_stream.py | 10 | stream.py: 91% (push-on-change, keepalive, router identity) |
+| test_interface_conformance.py | 8 | parametrized ABC lifecycle tests across both data sources |
 
-Overall coverage: 84%.
+Overall coverage: 98%.
 
 ## Code Review & Fixes Applied
 

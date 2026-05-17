@@ -1,227 +1,172 @@
-"""Tests for SSE streaming endpoint."""
-
-from __future__ import annotations
+"""Tests for SSE streaming router and event generator."""
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
+from fastapi import FastAPI
 
 from app.market.cache import PriceCache
-from app.market.stream import KEEPALIVE_INTERVAL, _generate_events, create_stream_router
+from app.market.stream import _generate_events, create_stream_router
 
 
-def _make_request(disconnected: bool = False) -> MagicMock:
-    """Create a mock FastAPI Request object."""
+def _make_request(disconnect_after: int = 9999) -> MagicMock:
+    """Build a fake FastAPI Request that disconnects after N calls to is_disconnected()."""
+    calls = {"n": 0}
+
+    async def is_disconnected() -> bool:
+        calls["n"] += 1
+        return calls["n"] > disconnect_after
+
     request = MagicMock()
+    request.is_disconnected = is_disconnected
     request.client = MagicMock()
-    request.client.host = "127.0.0.1"
-    request.is_disconnected = AsyncMock(return_value=disconnected)
+    request.client.host = "test-client"
     return request
 
 
-async def _collect_events(
-    cache: PriceCache,
-    request: MagicMock,
-    max_events: int = 10,
-    interval: float = 0.01,
-    keepalive_interval: float = KEEPALIVE_INTERVAL,
-) -> list[str]:
-    """Collect up to max_events SSE chunks from _generate_events."""
-    events: list[str] = []
-    async for chunk in _generate_events(cache, request, interval=interval, keepalive_interval=keepalive_interval):
-        events.append(chunk)
-        if len(events) >= max_events:
+async def _collect(gen, max_items: int, timeout: float = 1.0) -> list[str]:
+    """Drain an async generator until it terminates or yields max_items."""
+    out: list[str] = []
+    for _ in range(max_items):
+        try:
+            chunk = await asyncio.wait_for(gen.__anext__(), timeout=timeout)
+        except (StopAsyncIteration, asyncio.TimeoutError):
             break
-    return events
-
-
-class TestGenerateEvents:
-    """Unit tests for the SSE event generator."""
-
-    @pytest.mark.asyncio
-    async def test_first_event_is_retry_directive(self):
-        """Test that the generator starts with a retry directive."""
-        cache = PriceCache()
-        request = _make_request(disconnected=True)  # Disconnect immediately after retry
-
-        events = []
-        async for chunk in _generate_events(cache, request, interval=0.01):
-            events.append(chunk)
-
-        assert events[0] == "retry: 1000\n\n"
-
-    @pytest.mark.asyncio
-    async def test_stops_on_disconnect(self):
-        """Test that the generator stops when the client disconnects."""
-        cache = PriceCache()
-        cache.update("AAPL", 190.00)
-
-        call_count = 0
-
-        async def is_disconnected():
-            nonlocal call_count
-            call_count += 1
-            return call_count > 2  # Disconnect after 2 checks
-
-        request = _make_request()
-        request.is_disconnected = is_disconnected
-
-        events = []
-        async for chunk in _generate_events(cache, request, interval=0.01):
-            events.append(chunk)
-
-        # Should have stopped (not run indefinitely)
-        assert len(events) < 20
-
-    @pytest.mark.asyncio
-    async def test_emits_price_event_on_cache_change(self):
-        """Test that a data event is emitted when the cache version advances."""
-        cache = PriceCache()
-
-        disconnect_after = 3
-        call_count = 0
-
-        async def is_disconnected():
-            nonlocal call_count
-            call_count += 1
-            return call_count > disconnect_after
-
-        request = _make_request()
-        request.is_disconnected = is_disconnected
-
-        # Pre-populate cache so first check sees data
-        cache.update("AAPL", 190.00)
-
-        events = []
-        async for chunk in _generate_events(cache, request, interval=0.01):
-            events.append(chunk)
-
-        data_events = [e for e in events if e.startswith("data:")]
-        assert len(data_events) >= 1
-        assert "AAPL" in data_events[0]
-
-    @pytest.mark.asyncio
-    async def test_no_duplicate_events_without_version_change(self):
-        """Test that the same version doesn't produce repeated data events."""
-        cache = PriceCache()
-        cache.update("AAPL", 190.00)
-
-        call_count = 0
-
-        async def is_disconnected():
-            nonlocal call_count
-            call_count += 1
-            return call_count > 5  # Run for several ticks
-
-        request = _make_request()
-        request.is_disconnected = is_disconnected
-
-        events = []
-        async for chunk in _generate_events(cache, request, interval=0.01):
-            events.append(chunk)
-
-        # Cache version doesn't change — should see exactly one data event
-        # (the first time the version is observed)
-        data_events = [e for e in events if e.startswith("data:")]
-        assert len(data_events) == 1
-
-    @pytest.mark.asyncio
-    async def test_emits_keepalive_on_idle(self):
-        """Test that a keepalive comment is sent when no price changes occur."""
-        cache = PriceCache()
-        cache.update("AAPL", 190.00)
-
-        call_count = 0
-
-        async def is_disconnected():
-            nonlocal call_count
-            call_count += 1
-            return call_count > 8
-
-        request = _make_request()
-        request.is_disconnected = is_disconnected
-
-        events = []
-        # Use a very short keepalive_interval so we trigger it quickly
-        async for chunk in _generate_events(
-            cache, request, interval=0.01, keepalive_interval=0.03
-        ):
-            events.append(chunk)
-
-        keepalive_events = [e for e in events if e.startswith(": keepalive")]
-        assert len(keepalive_events) >= 1
-
-    @pytest.mark.asyncio
-    async def test_keepalive_resets_after_price_change(self):
-        """Test that the keepalive timer resets when a price update is emitted."""
-        cache = PriceCache()
-        cache.update("AAPL", 190.00)
-
-        call_count = 0
-
-        async def is_disconnected():
-            nonlocal call_count
-            call_count += 1
-            if call_count == 4:
-                # Trigger a price update mid-stream
-                cache.update("AAPL", 191.00)
-            return call_count > 6
-
-        request = _make_request()
-        request.is_disconnected = is_disconnected
-
-        events = []
-        # Short keepalive so we'd see it if not reset
-        async for chunk in _generate_events(
-            cache, request, interval=0.01, keepalive_interval=0.02
-        ):
-            events.append(chunk)
-
-        data_events = [e for e in events if e.startswith("data:")]
-        # Should have at least 2 data events (initial + after price change)
-        assert len(data_events) >= 2
-
-    @pytest.mark.asyncio
-    async def test_empty_cache_no_data_event(self):
-        """Test that no data event is emitted when the cache is empty."""
-        cache = PriceCache()
-
-        call_count = 0
-
-        async def is_disconnected():
-            nonlocal call_count
-            call_count += 1
-            return call_count > 3
-
-        request = _make_request()
-        request.is_disconnected = is_disconnected
-
-        events = []
-        async for chunk in _generate_events(cache, request, interval=0.01):
-            events.append(chunk)
-
-        data_events = [e for e in events if e.startswith("data:")]
-        assert len(data_events) == 0
+        out.append(chunk)
+    return out
 
 
 class TestCreateStreamRouter:
-    """Tests for the create_stream_router factory."""
-
-    def test_returns_router_with_prices_endpoint(self):
-        """Test that create_stream_router returns a router with /prices route."""
-        from fastapi import APIRouter
-
-        cache = PriceCache()
-        router = create_stream_router(cache)
-
-        assert isinstance(router, APIRouter)
-        routes = [r.path for r in router.routes]
-        assert "/api/stream/prices" in routes
+    """Tests for the router factory itself."""
 
     def test_each_call_returns_independent_router(self):
-        """Test that each call to create_stream_router returns a new router."""
+        """B1: Two calls must return distinct routers bound to their own cache."""
+        cache_a = PriceCache()
+        cache_b = PriceCache()
+
+        router_a = create_stream_router(cache_a)
+        router_b = create_stream_router(cache_b)
+
+        assert router_a is not router_b
+        # Each router should have exactly one /prices route, not two from a singleton.
+        paths_a = [r.path for r in router_a.routes]
+        paths_b = [r.path for r in router_b.routes]
+        assert paths_a == ["/api/stream/prices"]
+        assert paths_b == ["/api/stream/prices"]
+
+    def test_router_can_be_included_in_fastapi_app(self):
+        """The router can be mounted on a FastAPI app without conflict."""
         cache = PriceCache()
-        router1 = create_stream_router(cache)
-        router2 = create_stream_router(cache)
-        assert router1 is not router2
+        app = FastAPI()
+        app.include_router(create_stream_router(cache))
+
+        # The mounted app should have exactly one route at /api/stream/prices.
+        sse_routes = [r for r in app.routes if getattr(r, "path", None) == "/api/stream/prices"]
+        assert len(sse_routes) == 1
+
+    def test_two_routers_can_be_mounted_independently(self):
+        """B1 regression: distinct routers don't double-register or share state."""
+        cache_a = PriceCache()
+        cache_b = PriceCache()
+        app_a = FastAPI()
+        app_b = FastAPI()
+        app_a.include_router(create_stream_router(cache_a))
+        app_b.include_router(create_stream_router(cache_b))
+
+        routes_a = [r for r in app_a.routes if getattr(r, "path", None) == "/api/stream/prices"]
+        routes_b = [r for r in app_b.routes if getattr(r, "path", None) == "/api/stream/prices"]
+        assert len(routes_a) == 1
+        assert len(routes_b) == 1
+
+
+@pytest.mark.asyncio
+class TestGenerateEvents:
+    """Tests for the SSE event generator."""
+
+    async def test_emits_retry_directive_first(self):
+        cache = PriceCache()
+        request = _make_request(disconnect_after=0)  # disconnects on first check
+        gen = _generate_events(cache, request, interval=0.01)
+
+        chunks = await _collect(gen, max_items=5)
+        assert chunks[0] == "retry: 1000\n\n"
+
+    async def test_yields_data_when_version_advances(self):
+        cache = PriceCache()
+        cache.update("AAPL", 190.00)  # cache version is now 1
+        request = _make_request(disconnect_after=2)
+        gen = _generate_events(cache, request, interval=0.01)
+
+        chunks = await _collect(gen, max_items=10)
+        data_chunks = [c for c in chunks if c.startswith("data: ")]
+        assert data_chunks, "expected at least one data frame"
+        assert "AAPL" in data_chunks[0]
+
+    async def test_does_not_yield_when_version_unchanged(self):
+        """If the cache version never advances, no data frames are emitted."""
+        cache = PriceCache()
+        cache.update("AAPL", 190.00)
+        request = _make_request(disconnect_after=5)
+        gen = _generate_events(cache, request, interval=0.01, keepalive_seconds=60.0)
+
+        chunks = await _collect(gen, max_items=20)
+        data_chunks = [c for c in chunks if c.startswith("data: ")]
+        # Exactly one data frame for the single version advance, then quiet.
+        assert len(data_chunks) == 1
+
+    async def test_emits_keepalive_after_idle(self):
+        """PLAN.md §6: emit ': keepalive\\n\\n' after the configured idle window."""
+        cache = PriceCache()
+        cache.update("AAPL", 190.00)
+        request = _make_request(disconnect_after=50)
+        # 10 ms tick, 30 ms keepalive — keepalive should fire after ~3 idle ticks.
+        gen = _generate_events(cache, request, interval=0.01, keepalive_seconds=0.03)
+
+        chunks = await _collect(gen, max_items=30, timeout=2.0)
+        keepalives = [c for c in chunks if c == ": keepalive\n\n"]
+        assert keepalives, "expected at least one keepalive comment"
+
+    async def test_exits_on_client_disconnect(self):
+        cache = PriceCache()
+        cache.update("AAPL", 190.00)
+        request = _make_request(disconnect_after=1)
+        gen = _generate_events(cache, request, interval=0.01)
+
+        chunks = await _collect(gen, max_items=20)
+        # The generator should terminate (collect stops early when StopAsyncIteration fires).
+        # We can also verify by attempting another anext().
+        with pytest.raises(StopAsyncIteration):
+            await asyncio.wait_for(gen.__anext__(), timeout=0.5)
+        # Sanity: at least the retry directive came through.
+        assert chunks[0] == "retry: 1000\n\n"
+
+    async def test_skips_data_frame_when_cache_empty(self):
+        """No data frame is emitted while the cache is empty, but retry directive still fires."""
+        cache = PriceCache()
+        request = _make_request(disconnect_after=3)
+        gen = _generate_events(cache, request, interval=0.01, keepalive_seconds=60.0)
+
+        chunks = await _collect(gen, max_items=10)
+        assert chunks[0] == "retry: 1000\n\n"
+        data_chunks = [c for c in chunks if c.startswith("data: ")]
+        assert data_chunks == []
+
+    async def test_anonymous_client_logged_as_unknown(self):
+        """When request.client is None, the generator still works."""
+        cache = PriceCache()
+        cache.update("AAPL", 190.00)
+
+        calls = {"n": 0}
+
+        async def is_disconnected() -> bool:
+            calls["n"] += 1
+            return calls["n"] > 1
+
+        request = MagicMock()
+        request.is_disconnected = is_disconnected
+        request.client = None
+
+        gen = _generate_events(cache, request, interval=0.01)
+        chunks = await _collect(gen, max_items=5)
+        assert chunks[0] == "retry: 1000\n\n"

@@ -33,6 +33,10 @@ TICKER_PARAMS: dict[str, dict[str, float]] = {
 # Default parameters for tickers not in the list above (dynamically added)
 DEFAULT_PARAMS: dict[str, float] = {"sigma": 0.25, "mu": 0.05}
 
+# Seed-price range for unknown tickers (PLAN.md §6: "$20–$400")
+UNKNOWN_TICKER_PRICE_MIN: float = 20.0
+UNKNOWN_TICKER_PRICE_MAX: float = 400.0
+
 # Correlation groups for the simulator's Cholesky decomposition
 # Tickers in the same group have higher intra-group correlation
 CORRELATION_GROUPS: dict[str, set[str]] = {
