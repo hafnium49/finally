@@ -52,8 +52,21 @@ uv run --extra dev pytest --cov=app       # With coverage
 uv run --extra dev ruff check app/ tests/ # Lint
 ```
 
-## Demo
+## Terminal Dashboard (`market_data_demo.py`)
+
+A Rich-based live UI that wires `SimulatorDataSource` → `PriceCache` and renders:
+
+- **Header** — title, elapsed/remaining timers, ticker count (yellow border)
+- **Live Prices table** — per-ticker price, change, change %, ▲/▼/─ arrow, and a 40-point unicode sparkline; colored green/red/dim by direction
+- **Recent Events panel** — timestamped notable moves (|Δ%| > 1.0), newest first, capped at 12 entries
+- **Session summary** — printed on exit: seed price → final price → session % change
+
+Implementation notes:
+- Uses `rich.layout.Layout` (3 vertical sections: header/body/footer) + `rich.live.Live` with `refresh_per_second=4`, `screen=True`
+- Each frame rebuilds the layout from cache state (stateless rendering)
+- Render loop polls every 250 ms but only re-renders when `cache.version` advances
+- Per-ticker price history kept in a `deque(maxlen=40)` for sparklines
 
 ```bash
-uv run market_data_demo.py   # Live terminal dashboard with simulated prices
+uv run market_data_demo.py   # 60s by default, Ctrl+C to exit
 ```
