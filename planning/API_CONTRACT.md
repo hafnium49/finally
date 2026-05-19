@@ -60,11 +60,17 @@ The full set of `error` machine codes that may appear in any error envelope or i
 | `insufficient_shares` | Sell exceeds current position quantity. | 400 |
 | `unknown_ticker` | Ticker not recognized by the active market data source / not in the watchlist for routes that require it. | 404 |
 | `invalid_ticker` | Ticker symbol fails the structural regex `^[A-Z]{1,5}$` (after uppercasing). | 422 |
-| `validation_error` | Request body fails Pydantic / structural validation (negative quantity, missing field, bad `side`, bad `range`, etc.). | 422 |
+| `validation_error` | Request body fails Pydantic / structural validation (missing field, bad `side`, bad `range`, etc.). | 422 |
+| `invalid_quantity` | Quantity is non-positive, non-finite, or otherwise non-tradeable. | 422 |
 | `ticker_already_in_watchlist` | `POST /api/watchlist` with a ticker already present. | 409 |
+| `not_in_watchlist` | `DELETE /api/watchlist/{ticker}` or watchlist remove action for a ticker the user isn't watching. | 404 |
 | `internal_error` | Unhandled server-side exception. | 500 |
 
-Inside `actions[]` (chat responses), only `insufficient_cash`, `insufficient_shares`, and `unknown_ticker` appear in `error` (per PLAN.md §9). `validation_error` cannot occur there because the LLM Engineer validates the LLM-generated trade payload before invoking the trade path; structurally malformed LLM output is collapsed into a human-readable `error_message` on a synthetic action entry.
+Inside `actions[]` (chat responses), the codes that may appear in `error` are:
+- For `kind: "trade"` — `insufficient_cash`, `insufficient_shares`, `unknown_ticker`, `invalid_quantity`, `invalid_ticker`
+- For `kind: "watchlist"` — `ticker_already_in_watchlist`, `not_in_watchlist`, `invalid_ticker`
+
+`validation_error` does not appear inside `actions[]` — the LLM Engineer's executor validates LLM-generated payloads before invoking the trade/watchlist path; structurally malformed LLM output is collapsed into a human-readable `error_message` on a synthetic action entry with the most specific applicable code.
 
 ---
 
