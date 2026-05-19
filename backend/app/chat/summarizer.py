@@ -19,7 +19,7 @@ from __future__ import annotations
 import os
 from typing import Any, Mapping, Optional, Sequence
 
-from .schemas import ChatAction
+from .schemas import _ChatActionBase
 
 
 SUMMARIZER_PROMPT_TEMPLATE = """\
@@ -61,8 +61,8 @@ def _format_actions_trace(actions: Sequence[Any] | None) -> str:
     add_count = 0
     remove_count = 0
     for action in actions:
-        if isinstance(action, ChatAction):  # type: ignore[arg-type]
-            kind = action.kind  # type: ignore[attr-defined]
+        if isinstance(action, _ChatActionBase):
+            kind = action.kind
             sub = getattr(action, "action", None)
         elif isinstance(action, dict):
             kind = action.get("kind")
