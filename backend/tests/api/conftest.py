@@ -7,11 +7,11 @@ Each test gets:
       * creates a PriceCache (no background tasks, no live market source —
         we don't want randomness or asyncio loops in unit tests).
       * registers the api_router + error handlers
-  - An ``httpx.AsyncClient`` bound to ``ASGITransport(app=app)``.
+  - An ``httpx.AsyncClient`` bound to ``ASGITransport(app=app)``, with the
+    app's lifespan protocol exercised so ``app.state`` is populated.
 
-This keeps the tests fast and deterministic. The market source is replaced
-with a stub that records add/remove calls but never produces ticks; tests
-seed the PriceCache by hand.
+The market source is replaced with a stub that records add/remove calls but
+never produces ticks; tests seed the ``PriceCache`` by hand.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from app.db import init_database
 from app.market import PriceCache
 
 
-class _StubMarketSource:
+class StubMarketSource:
     """A no-op MarketDataSource used in API tests.
 
     Tests poke prices directly into the PriceCache via ``app.state.price_cache``;
@@ -43,7 +43,7 @@ class _StubMarketSource:
         self.removed: list[str] = []
         self.tickers: list[str] = []
 
-    async def start(self, tickers):  # noqa: D401
+    async def start(self, tickers):
         self.tickers = list(tickers)
 
     async def stop(self):
@@ -78,8 +78,8 @@ def price_cache() -> PriceCache:
 
 
 @pytest.fixture
-def stub_market_source() -> _StubMarketSource:
-    return _StubMarketSource()
+def stub_market_source() -> StubMarketSource:
+    return StubMarketSource()
 
 
 @pytest.fixture
@@ -97,19 +97,6 @@ def app(tmp_db_path: Path, price_cache: PriceCache, stub_market_source) -> FastA
     register_error_handlers(test_app)
     test_app.include_router(api_router)
     return test_app
-
-
-@pytest_asyncio.fixture
-async def client(app: FastAPI):
-    """``httpx.AsyncClient`` bound to the test app via ASGI transport."""
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
-        # Trigger the lifespan startup so app.state is populated.
-        async with httpx.AsyncClient(transport=transport, base_url="http://test"):
-            pass
-        # Simpler: explicit lifespan via LifespanManager. httpx ASGITransport
-        # does NOT run lifespan by default, so wire it up manually.
-        yield c
 
 
 # ---------------------------------------------------------------------------
@@ -165,8 +152,8 @@ class _LifespanManager:
 
 
 @pytest_asyncio.fixture
-async def lifespan_client(app: FastAPI):
-    """A client whose lifespan startup has actually run (populating app.state)."""
+async def client(app: FastAPI):
+    """``httpx.AsyncClient`` against the test app, with lifespan startup completed."""
     async with _LifespanManager(app):
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
