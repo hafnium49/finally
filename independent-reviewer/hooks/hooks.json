@@ -5,7 +5,7 @@
                 "hooks": [
                     {
                         "type": "command",
-                        "command": "codex exec \"Review changes since last commit and write results to a file name"
+                        "command": "codex exec \"Review changes since last commit and write results to a file named planning/review-$(date +%Y%m%d-%H%M%S).md\" </dev/null >>planning/.hook-logs/codex-stop.log 2>&1; exit 0"
                     }
                 ]
             }

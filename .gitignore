@@ -207,3 +207,8 @@ marimo/_lsp/
 __marimo__/
 
 tmp/
+
+# Claude Code session-local worktrees (linked git worktrees managed by Claude
+# Code subagents). Ignoring the parent dir keeps `git status` from descending
+# into and trying to open their (sometimes orphaned) gitdirs.
+.claude/worktrees/

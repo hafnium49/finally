@@ -40,7 +40,32 @@ from app.portfolio import pruner_loop, snapshot_loop, tick_writer_loop
 
 logger = logging.getLogger(__name__)
 
-STATIC_DIR = Path(os.environ.get("FINALLY_STATIC_DIR", "/app/static"))
+
+def _resolve_static_dir() -> Path | None:
+    """Pick the first existing candidate for the SPA static directory.
+
+    Order of precedence:
+      1. ``FINALLY_STATIC_DIR`` env override (for tests or custom deployments).
+      2. ``/app/static`` — the Docker COPY target.
+      3. ``<repo>/frontend/out`` — the Next.js dev/static-export location,
+         used when running the backend outside a container.
+    Returns ``None`` if no candidate exists, in which case the SPA mount
+    is skipped (the API still serves).
+    """
+    override = os.environ.get("FINALLY_STATIC_DIR", "").strip()
+    candidates: list[Path] = []
+    if override:
+        candidates.append(Path(override))
+    candidates.append(Path("/app/static"))
+    # backend/app/main.py -> backend -> repo root -> frontend/out
+    candidates.append(Path(__file__).resolve().parent.parent.parent / "frontend" / "out")
+    for path in candidates:
+        if path.exists() and path.is_dir():
+            return path
+    return None
+
+
+STATIC_DIR = _resolve_static_dir()
 
 
 def _load_watchlist_tickers(user_id: str = "default") -> list[str]:
@@ -155,16 +180,18 @@ def create_app() -> FastAPI:
     # Mount API routes FIRST so they win over the static catch-all.
     app.include_router(api_router)
 
-    # Mount the SPA static export LAST. If the directory doesn't exist
-    # (development mode), skip with a warning — the API still serves.
-    if STATIC_DIR.exists() and STATIC_DIR.is_dir():
+    # Mount the SPA static export LAST. If no candidate directory exists
+    # (development mode without a build), skip with a warning — the API
+    # still serves.
+    if STATIC_DIR is not None:
         app.mount(
             "/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static"
         )
         logger.info("Static files mounted from %s", STATIC_DIR)
     else:
         logger.warning(
-            "Static directory %s not found; SPA assets will not be served", STATIC_DIR
+            "No static directory found (checked FINALLY_STATIC_DIR, /app/static, "
+            "frontend/out); SPA assets will not be served"
         )
 
     return app

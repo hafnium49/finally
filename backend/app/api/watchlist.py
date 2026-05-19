@@ -32,10 +32,17 @@ router = APIRouter(prefix="/watchlist", tags=["watchlist"])
 
 
 class AddTickerBody(BaseModel):
-    """Request body for ``POST /api/watchlist``."""
+    """Request body for ``POST /api/watchlist``.
+
+    We do NOT enforce the 1-5 letter rule here at Pydantic level — the
+    regex check in :func:`normalize_ticker` does, and it produces the
+    contract-specified ``invalid_ticker`` error code (422). Pydantic-level
+    length errors collapse to ``validation_error``, which is the wrong
+    code for the ticker case.
+    """
 
     model_config = ConfigDict(extra="forbid")
-    ticker: str = Field(..., min_length=1, max_length=8)
+    ticker: str = Field(..., min_length=1)
 
 
 def _utc_now_iso() -> str:

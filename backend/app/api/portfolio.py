@@ -44,10 +44,16 @@ _RANGE_TO_DELTA: dict[str, timedelta] = {
 
 
 class TradeBody(BaseModel):
-    """Request body for ``POST /api/portfolio/trade``."""
+    """Request body for ``POST /api/portfolio/trade``.
+
+    ``ticker`` length is not enforced here — the regex check in
+    :func:`normalize_ticker` raises 422 ``invalid_ticker`` for malformed
+    symbols, which is the contract-specified code (Pydantic-level length
+    errors collapse to ``validation_error``).
+    """
 
     model_config = ConfigDict(extra="forbid")
-    ticker: str = Field(..., min_length=1, max_length=8)
+    ticker: str = Field(..., min_length=1)
     side: Literal["buy", "sell"]
     quantity: float = Field(..., gt=0)
 
