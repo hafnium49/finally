@@ -21,7 +21,14 @@ def stub_chat_module(monkeypatch):
     """Install a stub ``app.chat`` module exposing ``handle_message``.
 
     Yields the stub so tests can swap its ``handle_message`` per-case.
+
+    We also patch the ``chat`` attribute on the parent ``app`` package
+    because ``from app import chat`` resolves via attribute access on the
+    already-imported parent (sys.modules patching alone isn't enough if
+    the real ``app.chat`` was loaded earlier in the test session).
     """
+    import app as app_pkg  # noqa: WPS433
+
     mod = types.ModuleType("app.chat")
 
     async def default_handler(message: str):
@@ -29,12 +36,23 @@ def stub_chat_module(monkeypatch):
 
     mod.handle_message = default_handler  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "app.chat", mod)
+    monkeypatch.setattr(app_pkg, "chat", mod, raising=False)
     yield mod
 
 
 async def test_chat_503_when_app_chat_missing(client, monkeypatch):
-    """If ``app.chat`` is not importable, the route returns 503 ``chat_not_ready``."""
-    # Block import: make `app.chat` raise ImportError on access.
+    """If ``app.chat`` is not importable, the route returns 503 ``chat_not_ready``.
+
+    The chat route uses ``from app import chat as chat_module``. Python
+    resolves that as an attribute lookup on ``app`` first, then falls back
+    to ``importlib.import_module`` if the attribute is missing — which is
+    when ``sys.modules['app.chat']=None`` triggers ImportError. So we
+    delete the cached attribute AND set the sentinel.
+    """
+    import app as app_pkg  # noqa: WPS433
+
+    if hasattr(app_pkg, "chat"):
+        monkeypatch.delattr(app_pkg, "chat")
     monkeypatch.setitem(sys.modules, "app.chat", None)
     response = await client.post("/api/chat", json={"message": "hello"})
     assert response.status_code == 503
