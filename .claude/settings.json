@@ -21,5 +21,6 @@
     "context7@claude-plugins-official": true,
     "playwright@claude-plugins-official": true,
     "independent-reviewer@ed-tools": true
-  }
+  },
+  "teammateMode": "in-process"
 }
