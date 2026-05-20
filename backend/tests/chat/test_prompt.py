@@ -9,9 +9,12 @@ from app.chat.schemas import LLMResponse
 from app.chat.system_prompt import SYSTEM_PROMPT_VOICE
 
 
-def test_voice_block_is_still_todo_user() -> None:
-    """The SYSTEM_PROMPT_VOICE must remain a TODO(user) stub at end of Phase 2."""
-    assert "TODO(user)" in SYSTEM_PROMPT_VOICE
+def test_voice_block_is_user_authored() -> None:
+    """SYSTEM_PROMPT_VOICE must be non-empty user-authored content (no longer a TODO stub)."""
+    assert SYSTEM_PROMPT_VOICE.strip()
+    assert "TODO(user)" not in SYSTEM_PROMPT_VOICE
+    # Sanity: should be in the 5-10 line range the spec calls for, not a one-liner.
+    assert SYSTEM_PROMPT_VOICE.count("\n") >= 2
 
 
 def test_prompt_includes_voice_verbatim() -> None:
@@ -65,8 +68,8 @@ def test_prompt_contains_all_five_slot_headers() -> None:
     assert "## Current portfolio" in prompt
     assert "## Conversation summary" in prompt
     assert "## Recent conversation" in prompt
-    # Voice slot
-    assert "TODO(user)" in prompt
+    # Voice slot rendered (any non-empty content from SYSTEM_PROMPT_VOICE)
+    assert SYSTEM_PROMPT_VOICE in prompt
     # Schema slot rendered
     assert "LLMResponse" in prompt or "trades" in prompt  # one of them must show
     # Portfolio slot rendered
