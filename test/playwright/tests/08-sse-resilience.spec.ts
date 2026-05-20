@@ -4,9 +4,10 @@ import { expect, test } from "@playwright/test";
  * Scenario 8: SSE resilience.
  *
  * Use Playwright's `route()` API to intercept the first request to
- * /api/stream/prices and fail it (so the EventSource enters its
- * reconnecting/disconnected state). The browser auto-reconnects (retry: 1000
- * hint), and once we stop failing the route the connection comes back online.
+ * /api/stream/prices and fail it at the TRANSPORT level (so the EventSource
+ * enters its reconnecting/disconnected state). The browser auto-reconnects
+ * (retry: 1000 hint), and once we stop failing the route the connection
+ * comes back online.
  *
  * Assertion path: the Header's StatusDot renders
  *   data-testid="connection-status"
@@ -15,18 +16,25 @@ import { expect, test } from "@playwright/test";
  *
  * Note: `route()` only intercepts the *first* SSE request once `times: 1`.
  * After that, the genuine handler takes over and EventSource reconnects.
+ *
+ * History: previously this test used `route.fulfill({ status: 503 })`. Per
+ * the EventSource spec, an HTTP error response transitions the connection
+ * to a *permanent* CLOSED state — the browser does NOT auto-reconnect after
+ * a non-2xx response. To exercise the native retry path we must instead
+ * simulate a TRANSPORT-level disconnect via `route.abort('failed')`, which
+ * behaves like a network hiccup. EventSource then re-attempts the
+ * connection after its retry interval and we observe the dot returning to
+ * "open" once the route block is lifted. See planning/BUGS.md B002.
  */
 
 test("SSE drop is reflected in the connection dot then recovers", async ({
   page,
 }) => {
-  // Fail the FIRST SSE request only.
+  // Abort the FIRST SSE request at the transport layer only. A network-level
+  // failure (rather than a 5xx HTTP response) is what triggers EventSource's
+  // native reconnect logic.
   await page.route("**/api/stream/prices", async (route) => {
-    await route.fulfill({
-      status: 503,
-      contentType: "text/plain",
-      body: "service unavailable",
-    });
+    await route.abort("failed");
   }, { times: 1 });
 
   await page.goto("/");

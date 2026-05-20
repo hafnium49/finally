@@ -39,13 +39,13 @@ export default function Page() {
       <Header portfolio={portfolio} />
 
       <main className="grid flex-1 grid-cols-1 gap-3 overflow-hidden p-3 xl:grid-cols-[260px_minmax(0,1fr)_360px]">
-        {/* Left rail — watchlist */}
-        <div className="hidden h-full min-h-0 flex-col xl:flex">
+        {/* Left rail — watchlist. On <xl, this slot moves below the center via order. */}
+        <div className="flex h-full min-h-0 min-h-[280px] flex-col order-2 xl:order-1 xl:min-h-0">
           <Watchlist selected={selected} onSelect={setSelected} />
         </div>
 
         {/* Center — chart + positions + trade bar */}
-        <div className="flex h-full min-h-0 flex-col gap-3">
+        <div className="flex h-full min-h-0 flex-col gap-3 order-1 xl:order-2">
           <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
             <div className="min-h-[260px]">
               <MainChart ticker={selected} />
@@ -69,20 +69,10 @@ export default function Page() {
           </div>
 
           <TradeBar initialTicker={selected} onTradeComplete={handleTradeComplete} />
-
-          {/* Mobile watchlist fallback */}
-          <div className="block min-h-[280px] xl:hidden">
-            <Watchlist selected={selected} onSelect={setSelected} />
-          </div>
         </div>
 
-        {/* Right rail — chat */}
-        <div className="hidden h-full min-h-0 flex-col xl:flex">
-          <ChatPanel onActivity={refresh} />
-        </div>
-
-        {/* Mobile chat — render as bottom sheet via the panel's collapsed state */}
-        <div className="block min-h-[400px] xl:hidden">
+        {/* Right rail — chat. On <xl, this slot stacks at the bottom. */}
+        <div className="flex h-full min-h-0 min-h-[400px] flex-col order-3 xl:min-h-0">
           <ChatPanel onActivity={refresh} />
         </div>
       </main>
