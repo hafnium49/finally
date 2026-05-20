@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 /**
  * Scenario 5: Insufficient cash error.
  *
- *   - Attempt to buy 1,000,000 NVDA on a fresh $10k account.
+ *   - Attempt to buy 1,000,000 NVDA.
  *   - Inline error mentions "insufficient_cash" (machine code) or the
  *     human-readable equivalent.
  *   - Cash balance unchanged.
@@ -13,18 +13,30 @@ import { expect, test } from "@playwright/test";
  *
  * The TradeBar component surfaces the API's error message (see TradeBar.tsx:
  *   `setError(err instanceof Error ? err.message : "Trade failed")`).
+ *
+ * Suite-ordering note (BUGS.md B004, option d):
+ *   Prior specs (03 buys 5 AAPL, 04 buys 5 AAPL then sells 2) leave the
+ *   cash balance below the seeded $10,000. The assertion "cash unchanged"
+ *   is therefore against whatever cash value is current at the start of
+ *   this spec — read once via the API and compared before/after, not
+ *   against a hard-coded $10,000 string.
  */
+
+async function readCash(
+  request: import("@playwright/test").APIRequestContext,
+): Promise<number> {
+  const res = await request.get("/api/portfolio");
+  return (await res.json()).cash_balance;
+}
 
 test("buying 1,000,000 NVDA surfaces insufficient_cash inline; cash unchanged", async ({
   page,
+  request,
 }) => {
   await page.goto("/");
   await expect(page.getByTestId("watchlist-row-NVDA")).toBeVisible();
 
-  const cashMetric = page
-    .locator("text=Cash")
-    .locator("xpath=following-sibling::span[1]");
-  await expect(cashMetric).toHaveText(/\$10,000\.00/);
+  const cashBefore = await readCash(request);
 
   // -- Attempt the trade -------------------------------------------------
   await page.getByLabel("Ticker").fill("NVDA");
@@ -42,5 +54,6 @@ test("buying 1,000,000 NVDA surfaces insufficient_cash inline; cash unchanged", 
   await expect(errorLocator).toBeVisible({ timeout: 10_000 });
 
   // -- Cash unchanged ---------------------------------------------------
-  await expect(cashMetric).toHaveText(/\$10,000\.00/);
+  const cashAfter = await readCash(request);
+  expect(cashAfter).toBeCloseTo(cashBefore, 2);
 });
