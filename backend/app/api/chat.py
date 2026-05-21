@@ -14,6 +14,7 @@ not as HTTP errors. The only non-200 paths are 422 (validation) and 500
 
 from __future__ import annotations
 
+import inspect
 import logging
 from typing import Any
 
@@ -84,10 +85,19 @@ async def post_chat(body: ChatBody, request: Request) -> dict:
     # same execution-time price the UI trade path uses. The cache is a
     # live reference, not a snapshot — execute_trade reads it inside the
     # per-user lock.
+    #
+    # ``price_cache`` is forwarded only if the handler's signature accepts
+    # it. The production handler (``app.chat.handle_message``) does; test
+    # stubs that pre-date the B006 wiring may not, and we don't want this
+    # route to break them. ``inspect`` lets us stay backwards compatible
+    # without imposing a kwarg contract on stubs.
     cache = get_price_cache(request)
+    handler_kwargs: dict[str, Any] = {}
+    if _handler_accepts_kwarg(handler, "price_cache"):
+        handler_kwargs["price_cache"] = cache
 
     try:
-        result = await handler(body.message, price_cache=cache)
+        result = await handler(body.message, **handler_kwargs)
     except APIError:
         raise
     except Exception:
@@ -99,3 +109,21 @@ async def post_chat(body: ChatBody, request: Request) -> dict:
         )
 
     return _coerce_chat_response(result)
+
+
+def _handler_accepts_kwarg(handler: Any, name: str) -> bool:
+    """Return True iff ``handler``'s signature accepts a keyword named ``name``.
+
+    Treats ``**kwargs`` as accepting anything. Falls back to ``False`` if
+    the signature can't be introspected (e.g. C-implemented callables).
+    """
+    try:
+        sig = inspect.signature(handler)
+    except (TypeError, ValueError):
+        return False
+    params = sig.parameters
+    if name in params:
+        return True
+    return any(
+        p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()
+    )
