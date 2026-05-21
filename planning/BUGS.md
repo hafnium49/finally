@@ -32,6 +32,12 @@ Stack info captured at filing time:
   owner: frontend-engineer
   severity: blocker
   scenario: "Every E2E test that touches the watchlist, chat, or trade-bar grid"
+  # ITERATION 1 STATUS: FIXED. `frontend/app/page.tsx` was rewritten to mount
+  # <Watchlist> and <ChatPanel> exactly once each, using Tailwind `order-*`
+  # classes to reorder the same DOM tree across breakpoints instead of
+  # duplicating subtrees behind `hidden xl:flex` / `block xl:hidden`. Grep on
+  # iteration 1: each component appears in `page.tsx` exactly once. The
+  # strict-mode violations that blocked all 10 specs in iteration 0 are gone.
   repro: |
     1. Build image: `docker build -t finally:test /home/hafnium/finally`
     2. Start stack: `docker compose -f /home/hafnium/finally/test/docker-compose.test.yml up -d`
@@ -99,8 +105,8 @@ Stack info captured at filing time:
     than duplicating the entire subtree. Whichever approach is chosen, the
     invariant must be: each `data-testid` and each `aria-label` appears at
     most once in the DOM.
-  iteration: 0
-  fixed_in_commit: null
+  iteration: 1
+  fixed_in_commit: "5385833"
 ```
 
 ```yaml
@@ -140,8 +146,14 @@ Stack info captured at filing time:
     (network-level failure) instead of `route.fulfill({status:503})` so the
     browser's native retry actually fires. Will be revised once B001 is
     resolved and the full suite can re-run cleanly.
-  iteration: 0
-  fixed_in_commit: null
+  iteration: 1
+  fixed_in_commit: "5385833"
+  # ITERATION 1 STATUS: FIXED. `test/playwright/tests/08-sse-resilience.spec.ts`
+  # now uses `route.abort('failed')` (transport-level error) instead of
+  # `route.fulfill({status:503})` (HTTP error that permanently closes
+  # EventSource). The connection-status dot is now observed to leave "open",
+  # then return to "open" once the route block lifts. Spec 08 passes in 4.2s
+  # with the latest image.
 ```
 
 ```yaml
@@ -173,8 +185,14 @@ Stack info captured at filing time:
     blocker for iteration-0 reporting because we re-ran cleanly, but it
     will be revisited in iteration-1 when a `make test` / shell-script
     wrapper around the compose + Playwright run is added.
-  iteration: 0
-  fixed_in_commit: null
+  iteration: 1
+  fixed_in_commit: "5385833"
+  # ITERATION 1 STATUS: FIXED. Added `test/run-e2e.sh` which ALWAYS passes
+  # `-v` on `docker compose down`, both as a pre-flight cleanup and via an
+  # EXIT trap. The script is the canonical entry point for the suite. Inline
+  # comments document the constraint so a future change can't silently drop
+  # the `-v` flag. Verified: after a full run + teardown, `docker volume ls`
+  # no longer shows `test_finally_test_db`.
 ```
 
 ```yaml
@@ -212,8 +230,53 @@ Stack info captured at filing time:
 
     Severity is minor because tests can be made deterministic by the
     Integration Tester without any application change.
-  iteration: 0
-  fixed_in_commit: null
+  iteration: 1
+  fixed_in_commit: "5385833"
+  # ITERATION 1 STATUS: FIXED via option (d) per orchestrator instruction.
+  # Spec files were already named `01-…` through `08-…`, and
+  # playwright.config.ts already runs with `workers: 1` /
+  # `fullyParallel: false`, so the order is deterministic. The remaining
+  # work was making each spec idempotent against its predecessor's
+  # leftover state. Done as follows:
+  #
+  #   01-fresh-start.spec.ts  — READ-ONLY; added an explicit "MUST be first"
+  #                             comment so the position in the run order is
+  #                             documented.
+  #   02-watchlist-crud.spec.ts — pre-flight removes any leftover PYPL and
+  #                               re-adds NFLX via the API so the "add" /
+  #                               "remove" UI assertions always observe a
+  #                               state transition. Also fixed a pre-existing
+  #                               strict-mode violation on the remove button:
+  #                               the row's wrapper div has role="button"
+  #                               with an accessible name that subsumes the
+  #                               X-button's aria-label. Scoped the locator
+  #                               to `button[aria-label="…"]`.
+  #   03-buy-shares.spec.ts   — switched to DELTA assertions: snapshot cash
+  #                             and AAPL qty via the API before the trade,
+  #                             then assert cash decreased and qty
+  #                             increased by exactly 5. No more "$10,000.00"
+  #                             string match.
+  #   04-sell-shares.spec.ts  — similar delta refactor. Buys 5 AAPL on top
+  #                             of whatever spec 03 left, then sells 2;
+  #                             asserts a net +3 quantity delta and that
+  #                             cash dropped (after buy) and rose (after
+  #                             sell). Test name updated to "drops quantity
+  #                             by 2" (was "to 3").
+  #   05-insufficient-cash.spec.ts — reads cash via API before/after the
+  #                                  failed buy and asserts equality;
+  #                                  no longer hard-codes $10,000.
+  #   06-portfolio-viz.spec.ts — was already idempotent (only requires a
+  #                              position to exist, which prior specs
+  #                              provide).
+  #   07-ai-chat-mock.spec.ts — was already idempotent (no cross-spec
+  #                              assertions; just relies on the watchlist
+  #                              having MSFT and TSLA, which the default
+  #                              seed always provides).
+  #   08-sse-resilience.spec.ts — read-only.
+  #
+  # Where a later spec depends on a prior spec's mutation, the dependency
+  # is now called out in a "Suite-ordering note" comment at the top of the
+  # spec file.
 ```
 
 ```yaml
@@ -243,6 +306,125 @@ Stack info captured at filing time:
     Not a code defect — just a sandbox configuration note for the next
     Integration Tester run. The current sandbox allowlist does not include
     `/home/hafnium/.npm` for writes and disallows `sudo` operations.
-  iteration: 0
+  iteration: 1
+  fixed_in_commit: null
+  # ITERATION 1 STATUS: still informational only. No code change required;
+  # iteration 1 used `dangerouslyDisableSandbox: true` for docker / npx /
+  # curl-against-localhost commands as before. Leaving open for the
+  # orchestrator to consider widening the default sandbox allowlist.
+```
+
+---
+
+## Iteration 1 — Phase 3 re-run after B001 fix + test-suite hardening
+
+Stack info captured at filing time:
+- Docker image `finally:test` rebuilt successfully from commit `5385833`
+  (`docker build -t finally:test /home/hafnium/finally`). The frontend
+  layer rebuilt (Next.js static export) because `page.tsx` changed.
+- Stack started via `docker compose -f /home/hafnium/finally/test/docker-compose.test.yml up -d`
+  with a freshly-recreated `finally_test_db` volume (the prior volume was
+  removed with `down -v` first; see B003 fix).
+- `/api/health` returned `{"status":"ok","db":"ok","market":"simulator"}`
+  within 1s of `up -d`.
+- Playwright 1.49 with chromium-1223 from `~/.cache/ms-playwright/`.
+- Suite run: `cd /home/hafnium/finally/test/playwright && npx playwright test --reporter=list`.
+
+Per-spec results (10 tests in 8 spec files):
+
+| Spec file                          | Tests | Pass | Fail |
+|------------------------------------|------:|-----:|-----:|
+| 01-fresh-start.spec.ts             |   1   |   1  |   0  |
+| 02-watchlist-crud.spec.ts          |   1   |   1  |   0  |
+| 03-buy-shares.spec.ts              |   1   |   1  |   0  |
+| 04-sell-shares.spec.ts             |   1   |   1  |   0  |
+| 05-insufficient-cash.spec.ts       |   1   |   1  |   0  |
+| 06-portfolio-viz.spec.ts           |   1   |   1  |   0  |
+| 07-ai-chat-mock.spec.ts            |   3   |   1  |   2  |
+| 08-sse-resilience.spec.ts          |   1   |   1  |   0  |
+| **Total**                          | **10**| **8**| **2**|
+
+Total run time: ~45s.
+
+The two failures are BOTH the same root cause — a backend defect in
+`backend/app/chat/executor.py` where `execute_trade()` is called without
+the required `price_cache` argument. Filed as B006.
+
+```yaml
+- id: B006
+  owner: llm-engineer
+  severity: major
+  scenario: "Any chat message that triggers a trade via the LLM (mock or real)"
+  repro: |
+    1. With the stack up (LLM_MOCK=true), run:
+       `curl -s -X POST http://localhost:8000/api/chat \
+          -H "Content-Type: application/json" \
+          -d '{"message":"Buy 2 MSFT"}'`
+    2. Or via Playwright:
+       `cd /home/hafnium/finally/test/playwright && npx playwright test 07-ai-chat-mock --reporter=list`
+  expected: |
+    Per LLM_CONTRACT.md §6.1 and the mock response table in §4.2, the
+    chat handler should execute the LLM-emitted trade, return a
+    structured `actions` array entry of kind="trade" with status="ok"
+    (or status="error" for insufficient cash), and 200 OK.
+  actual: |
+    The /api/chat endpoint returns HTTP 500 with body
+      {"error":"internal_error","error_message":"The chat pipeline failed unexpectedly."}
+
+    Backend traceback (captured from `docker logs finally-test`):
+      File "/app/app/chat/handler.py", line 262, in handle_message
+        actions = await llm_executor.apply(llm_response, user_id=user_id)
+      File "/app/app/chat/executor.py", line 232, in apply
+        actions.append(_trade_error_action(trade, exc))
+      File "/app/app/chat/executor.py", line 151, in _trade_error_action
+        raise exc  # re-raise unknown exception types per §6.2 (4)
+      File "/app/app/chat/executor.py", line 224, in apply
+        execute(
+            ticker=trade.ticker,
+            side=trade.side,
+            quantity=trade.quantity,
+            user_id=user_id,
+        )
+    TypeError: execute_trade() missing 1 required positional argument: 'price_cache'
+
+    Root cause (verified by reading `backend/app/portfolio/trade.py:128-167`):
+    `app.portfolio.execute_trade()` has the signature
+      `async def execute_trade(*, ticker, side, quantity, price_cache, user_id="default")`
+    but `backend/app/chat/executor.py:_load_trade_callable()` returns the
+    raw function and `apply()` calls it WITHOUT a `price_cache` argument.
+    The portfolio trade path used by the UI's POST /api/portfolio/trade
+    works fine because the REST route imports the cache from the FastAPI
+    app state and passes it explicitly; the chat executor never grew that
+    plumbing.
+
+    Consequence: every Playwright test under 07-ai-chat-mock.spec.ts that
+    asserts on a chat-driven trade fails. The "portfolio summary" sub-test
+    (which has NO trade in the mocked response) passes — confirming the
+    chat plumbing itself is fine, only the trade-execution call is broken.
+
+    Artifacts:
+      /home/hafnium/finally/test/playwright/test-results/07-ai-chat-mock--Buy-2-MSF-bdad4--action-and-a-positions-row-chromium/test-failed-1.png
+      /home/hafnium/finally/test/playwright/test-results/07-ai-chat-mock--Buy-2-MSF-bdad4--action-and-a-positions-row-chromium/trace.zip
+      /home/hafnium/finally/test/playwright/test-results/07-ai-chat-mock--buy-9999--a2815-ufficient-cash-error-action-chromium/test-failed-1.png
+      /home/hafnium/finally/test/playwright/test-results/07-ai-chat-mock--buy-9999--a2815-ufficient-cash-error-action-chromium/trace.zip
+  fix_hint: |
+    Two paths to consider, both equally good:
+      (a) Have the chat executor resolve the live `price_cache` from
+          wherever the rest of the backend keeps it (app.state, a module
+          singleton, dependency injection) and pass it explicitly into
+          `execute_trade(...)`.
+      (b) Add a thin convenience wrapper next to `execute_trade` (e.g.
+          `app.portfolio.execute_trade_default()`) that internally pulls
+          the global cache and forwards every other kwarg. The chat
+          executor then calls that wrapper instead. This keeps the trade
+          API unchanged for the REST route while giving the chat path a
+          drop-in callable that matches its existing kwarg set.
+    Either way, please also add a backend unit test in
+    `backend/tests/chat/test_executor.py` that exercises
+    `apply()` against a real (or in-memory) portfolio module so the
+    integration boundary is covered going forward — the existing chat
+    handler tests pass because they stub `trade_fn` and never hit the
+    real wiring.
+  iteration: 1
   fixed_in_commit: null
 ```
