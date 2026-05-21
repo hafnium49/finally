@@ -201,6 +201,7 @@ async def apply(
     parsed: LLMResponse,
     *,
     user_id: str = "default",
+    price_cache: Any = None,
     trade_fn: Optional[Callable[..., Any]] = None,
     watchlist_add_fn: Optional[Callable[..., Any]] = None,
     watchlist_remove_fn: Optional[Callable[..., Any]] = None,
@@ -209,6 +210,13 @@ async def apply(
 
     Returns the resolved ``actions`` list. Per LLM_CONTRACT.md §6.1, all
     trade actions come first, then all watchlist actions.
+
+    ``price_cache`` is the live :class:`app.market.PriceCache` instance —
+    it must be passed in by callers that go through the real portfolio
+    code path so trade fills resolve at execution-time prices (per
+    PLAN.md §9 "Trade Execution & Validation"). It is only forwarded to
+    the underlying ``trade_fn``; tests that inject their own ``trade_fn``
+    may leave it as ``None``.
 
     The ``trade_fn`` / ``watchlist_*_fn`` kwargs are escape hatches for
     tests; in production they default to the lazily-imported portfolio
@@ -220,14 +228,19 @@ async def apply(
         execute = trade_fn if trade_fn is not None else _load_trade_callable()
         for trade in parsed.trades:
             try:
-                result = await _maybe_await(
-                    execute(
-                        ticker=trade.ticker,
-                        side=trade.side,
-                        quantity=trade.quantity,
-                        user_id=user_id,
-                    )
-                )
+                call_kwargs: dict[str, Any] = {
+                    "ticker": trade.ticker,
+                    "side": trade.side,
+                    "quantity": trade.quantity,
+                    "user_id": user_id,
+                }
+                # Only forward price_cache when we have one — keeps the
+                # ``trade_fn`` test escape hatch (which doesn't require
+                # it) backwards compatible while ensuring the real
+                # ``portfolio.execute_trade`` (which does) gets it.
+                if price_cache is not None:
+                    call_kwargs["price_cache"] = price_cache
+                result = await _maybe_await(execute(**call_kwargs))
             except Exception as exc:  # noqa: BLE001 - we re-raise unknown types
                 actions.append(_trade_error_action(trade, exc))
                 continue

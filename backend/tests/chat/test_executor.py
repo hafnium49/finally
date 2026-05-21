@@ -332,3 +332,82 @@ class TestOrdering:
             watchlist_remove_fn=lambda **_: None,
         )
         assert [a.kind for a in actions] == ["trade", "watchlist"]
+
+
+# ---------------------------------------------------------------------------
+# B006 regression: executor must forward price_cache into execute_trade
+# ---------------------------------------------------------------------------
+
+
+class TestPriceCacheWiring:
+    """B006 regression suite.
+
+    Before the fix, ``apply()`` called ``execute_trade(ticker=..., side=...,
+    quantity=..., user_id=...)`` with no ``price_cache``, which raised
+    ``TypeError`` and surfaced as HTTP 500 ``internal_error`` from
+    ``/api/chat``. The executor must now forward the live cache so the
+    real ``portfolio.execute_trade`` resolves a fill price at execution
+    time (PLAN.md §9).
+    """
+
+    @pytest.mark.asyncio
+    async def test_executor_uses_live_price_cache(self) -> None:
+        """The cache passed to apply() must reach execute_trade and drive fill_price."""
+
+        class StubPriceCache:
+            def __init__(self, price: float) -> None:
+                self._price = price
+
+            def get_price(self, ticker: str) -> float:
+                return self._price
+
+        cache = StubPriceCache(price=205.55)
+        seen_caches: list[Any] = []
+
+        async def trade_fn(**kwargs: Any) -> dict[str, Any]:
+            # B006: this kwarg MUST be present and must be the same
+            # live cache object handed to apply() — not None, not a copy.
+            assert "price_cache" in kwargs, (
+                "B006 regression: apply() failed to forward price_cache "
+                "into execute_trade"
+            )
+            seen_caches.append(kwargs["price_cache"])
+            fill_price = kwargs["price_cache"].get_price(kwargs["ticker"])
+            return {"fill_price": fill_price, "cash_after": 1000.0}
+
+        parsed = LLMResponse(
+            message="ok",
+            trades=[LLMTrade(ticker="AAPL", side="buy", quantity=2)],
+        )
+        actions = await apply(parsed, price_cache=cache, trade_fn=trade_fn)
+
+        assert seen_caches == [cache], "executor must pass through the live cache reference"
+        assert len(actions) == 1
+        assert actions[0].status == "ok"
+        # Fill price comes from the cache at apply-time — not None, not stale.
+        assert actions[0].fill_price == 205.55
+
+    @pytest.mark.asyncio
+    async def test_price_cache_omitted_when_none_for_test_stubs(self) -> None:
+        """When no cache is passed, the trade_fn escape hatch still works.
+
+        Existing tests inject a ``trade_fn`` that doesn't accept
+        ``price_cache``. The signature change must remain backwards
+        compatible with those tests.
+        """
+        observed: list[dict[str, Any]] = []
+
+        async def trade_fn(**kwargs: Any) -> dict[str, Any]:
+            observed.append(kwargs)
+            return _ok_trade_result(100.0, 1000.0)
+
+        parsed = LLMResponse(
+            message="ok",
+            trades=[LLMTrade(ticker="AAPL", side="buy", quantity=1)],
+        )
+        actions = await apply(parsed, trade_fn=trade_fn)
+        assert actions[0].status == "ok"
+        assert "price_cache" not in observed[0], (
+            "When apply() is called without price_cache, it must NOT inject "
+            "a None key — test stubs would reject that as an unexpected kwarg."
+        )

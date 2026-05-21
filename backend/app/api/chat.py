@@ -20,6 +20,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.api.deps import get_price_cache
 from app.api.errors import APIError
 
 logger = logging.getLogger(__name__)
@@ -79,8 +80,14 @@ async def post_chat(body: ChatBody, request: Request) -> dict:
             error_message="Chat subsystem is not initialized yet.",
         )
 
+    # B006: pass the live PriceCache so LLM-triggered trades fill at the
+    # same execution-time price the UI trade path uses. The cache is a
+    # live reference, not a snapshot — execute_trade reads it inside the
+    # per-user lock.
+    cache = get_price_cache(request)
+
     try:
-        result = await handler(body.message)
+        result = await handler(body.message, price_cache=cache)
     except APIError:
         raise
     except Exception:

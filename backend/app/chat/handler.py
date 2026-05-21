@@ -225,8 +225,15 @@ async def handle_message(
     *,
     user_id: str = "default",
     db_path: Optional[Any] = None,
+    price_cache: Optional[Any] = None,
 ) -> ChatResponse:
     """Run the full chat pipeline and return the wire response.
+
+    ``price_cache`` is the live :class:`app.market.PriceCache` instance.
+    The HTTP layer (``app.api.chat``) resolves it from ``app.state`` and
+    threads it through so LLM-triggered trades fill at the latest cached
+    price — the same source the UI trade path uses (B006 regression
+    guard).
 
     The DB connection is opened by this function (via ``app.db.connection``)
     so the handler can be called from any context (HTTP route, CLI, tests).
@@ -259,7 +266,9 @@ async def handle_message(
         )
 
     # 3. Execute trades + watchlist changes.
-    actions = await llm_executor.apply(llm_response, user_id=user_id)
+    actions = await llm_executor.apply(
+        llm_response, user_id=user_id, price_cache=price_cache
+    )
 
     # 4. Persist user + assistant rows.
     with connection(db_path) as conn:
