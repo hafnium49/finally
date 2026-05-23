@@ -1,0 +1,97 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]:
+          - generic [ref=e6]: F
+          - generic [ref=e7]:
+            - generic [ref=e8]: FinAlly
+            - generic [ref=e9]: AI Trading Workstation
+        - generic [ref=e10]:
+          - generic [ref=e11]:
+            - generic [ref=e12]: Portfolio
+            - generic [ref=e13]: —
+          - generic [ref=e14]:
+            - generic [ref=e15]: Cash
+            - generic [ref=e16]: —
+          - generic [ref=e17]:
+            - generic [ref=e18]: Unrealized P&L
+            - generic [ref=e19]: —
+          - generic [ref=e22]: Live
+    - main [ref=e23]:
+      - region "Watchlist" [ref=e25]:
+        - generic [ref=e26]:
+          - heading "Watchlist" [level=2] [ref=e27]
+          - generic [ref=e28]: 0 symbols
+        - generic [ref=e29]:
+          - textbox "Add ticker" [ref=e30]
+          - button "Add" [disabled] [ref=e31]
+        - generic [ref=e33]: Loading watchlist…
+      - generic [ref=e34]:
+        - generic [ref=e35]:
+          - region "Main chart" [ref=e37]:
+            - generic [ref=e38]:
+              - heading "Chart" [level=2] [ref=e39]
+              - tablist "Range" [ref=e40]:
+                - tab "1h" [selected] [ref=e41] [cursor=pointer]
+                - tab "6h" [ref=e42] [cursor=pointer]
+                - tab "24h" [ref=e43] [cursor=pointer]
+                - tab "7d" [ref=e44] [cursor=pointer]
+            - generic [ref=e45]:
+              - table [ref=e48]:
+                - row [ref=e49]:
+                  - cell
+                  - cell [ref=e50]:
+                    - link "Charting by TradingView" [ref=e54] [cursor=pointer]:
+                      - /url: https://www.tradingview.com/?utm_medium=lwc-link&utm_campaign=lwc-chart&utm_source=localhost/
+                      - img [ref=e55]
+                  - cell [ref=e59]
+                - row [ref=e63]:
+                  - cell
+                  - cell [ref=e64]
+                  - cell [ref=e68]
+              - generic [ref=e71]: Select a ticker from the watchlist
+          - region "Portfolio heatmap" [ref=e73]:
+            - heading "Allocation" [level=2] [ref=e75]
+            - generic [ref=e77]: No priced positions yet
+        - generic [ref=e78]:
+          - region "Portfolio P&L" [ref=e80]:
+            - generic [ref=e81]:
+              - heading "Portfolio Value" [level=2] [ref=e82]
+              - generic [ref=e83]:
+                - button "1h" [ref=e84] [cursor=pointer]
+                - button "6h" [ref=e85] [cursor=pointer]
+                - button "24h" [ref=e86] [cursor=pointer]
+                - button "7d" [ref=e87] [cursor=pointer]
+            - generic [ref=e89]: Loading…
+          - region "Positions" [ref=e91]:
+            - generic [ref=e92]:
+              - heading "Positions" [level=2] [ref=e93]
+              - generic [ref=e94]: 0 open
+            - generic [ref=e96]: No open positions.
+        - region "Trade" [ref=e97]:
+          - generic [ref=e98]:
+            - heading "Trade" [level=2] [ref=e99]
+            - generic [ref=e100]: market · instant fill
+          - generic [ref=e101]:
+            - textbox "Ticker" [ref=e102]:
+              - /placeholder: TICKER
+            - textbox "Quantity" [ref=e103]:
+              - /placeholder: QTY
+            - button "Buy" [ref=e104] [cursor=pointer]
+            - button "Sell" [ref=e105] [cursor=pointer]
+      - complementary "AI chat" [ref=e107]:
+        - generic [ref=e108]:
+          - heading "FinAlly Assistant" [level=2] [ref=e111]
+          - button "Hide chat panel" [ref=e112] [cursor=pointer]: —
+        - generic [ref=e114]:
+          - paragraph [ref=e115]: Ask FinAlly about your portfolio, request a trade, or manage your watchlist. Trades execute automatically.
+          - generic [ref=e116]:
+            - button "What's my portfolio?" [ref=e117] [cursor=pointer]
+            - button "Buy 5 AAPL" [ref=e118] [cursor=pointer]
+            - button "Add PYPL to watchlist" [ref=e119] [cursor=pointer]
+        - generic [ref=e120]:
+          - textbox "Chat input" [ref=e121]:
+            - /placeholder: Ask FinAlly…
+          - button "Send" [disabled] [ref=e122]
+  - alert [ref=e123]

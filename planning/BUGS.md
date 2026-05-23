@@ -489,3 +489,160 @@ Teardown verification: `docker compose ... down -v` ran via the EXIT trap;
 `docker volume ls | grep finally_test_db` shows no leftover volume and the
 `finally-test` container is gone.
 
+
+---
+
+## Iteration 3 — Live (non-mock) smoke test by smoke-tester
+
+Stack info captured at filing time:
+- Image rebuilt via `bash /home/hafnium/finally/scripts/start_mac.sh --build`
+  (all layers cached, sha256:af06e00003c3...).
+- Container `finally` launched with bind-mount `./db:/app/db` and `--env-file .env`.
+- `.env` has `OPENROUTER_API_KEY` set, `MASSIVE_API_KEY` empty, `LLM_MOCK` unset
+  → real OpenRouter LLM, simulator market data.
+- `/api/health` returns `{"status":"ok","db":"ok","market":"simulator"}`.
+- Browser: Playwright MCP Chromium against `http://localhost:8000`.
+- Screenshots: `/home/hafnium/finally/smoke/smoke-{1..5}-*.png`.
+- Manual buy and chat-driven sell both executed successfully end-to-end; bugs
+  below were filed for issues discovered along the way, not stack-stopping
+  failures.
+
+```yaml
+- id: B017
+  owner: llm-engineer
+  severity: major
+  scenario: "Chat answers any question about portfolio state (live LLM mode)"
+  repro: |
+    1. Start stack with LLM_MOCK unset/false and OPENROUTER_API_KEY set.
+    2. Buy any shares via the UI trade bar (or POST /api/portfolio/trade)
+       so the database has a non-empty position and cash \!= 10000.
+    3. Send a chat message: `What's my portfolio?`
+       (or hit POST /api/chat directly with the same body).
+  expected: |
+    The LLM response references the user's actual cash balance and the open
+    positions. PLAN.md §9 "How It Works" step 1 says the backend "Loads the
+    user's current portfolio context (cash, positions with P&L, watchlist
+    with live prices, total portfolio value)" before calling the LLM.
+  actual: |
+    LLM consistently answers "Your portfolio is empty." / "Cash: $0.00,
+    AAPL shares: 0" even when /api/portfolio shows cash=$9,050.90 and
+    quantity=5 AAPL. Confirmed via two channels in one session:
+      - Browser chat panel: see `smoke/smoke-4-chat-portfolio-response.png`.
+      - Direct curl: `curl -sX POST :8000/api/chat -d
+        '{"message":"What is my exact cash balance and how many AAPL
+        shares do I own?"}'` returns `{"message":"Cash: $0.00,
+        AAPL shares: 0","actions":[]}`.
+    Root cause (verified by reading code, not modified):
+      - `backend/app/chat/handler.py:65` calls
+        `getattr(portfolio, "get_portfolio_context", None)` and returns
+        `{}` if the attribute is missing — and it IS missing.
+      - `backend/app/portfolio/__init__.py` exports `current_portfolio`,
+        `execute_trade`, etc. but NEVER exports a
+        `get_portfolio_context` symbol.
+      - Net effect: `portfolio_ctx` is always `{}` → the prompt template
+        in `backend/app/chat/prompt.py` renders
+        `## Current portfolio\n{}` regardless of real DB state.
+    Trade execution path is unaffected (see B019 — the `Sell 2 AAPL`
+    test still settled correctly), because chat trade execution goes
+    through `executor.py` which reads the real DB independently. The
+    bug is strictly in the *context the LLM sees*; it makes the
+    assistant useless for any portfolio analysis question.
+  suggested_fix: |
+    Either:
+      (a) Add and export `get_portfolio_context(user_id)` in
+          `app/portfolio/__init__.py` that returns the same dict shape
+          PLAN.md §9 implies (cash_balance, total_value, unrealized_pnl,
+          positions[], watchlist[] with prices). The handler will
+          immediately pick it up via the existing getattr.
+      (b) Change `handler.py` to call `portfolio.current_portfolio(user_id)`
+          (which already exists and returns most of what's needed) and
+          augment with watchlist prices from `PriceCache`.
+    Option (a) is the smaller change and matches the existing defensive
+    handler design.
+
+- id: B018
+  owner: devops-engineer
+  severity: major
+  scenario: "First-time launch on a host where the invoking user uid \!= 1000"
+  repro: |
+    1. As any host user whose uid is not 1000 (e.g., hafnium, uid=1002),
+       run `bash /home/hafnium/finally/scripts/start_mac.sh --build`
+       on a host where the project's `db/` directory has just been created
+       by `mkdir -p db` (the script does this itself).
+    2. `docker logs finally` immediately after launch.
+  expected: |
+    Container starts and `/api/health` returns 200 within a few seconds.
+  actual: |
+    Container restart-loops with FastAPI lifespan failure:
+      ```
+      File "/app/app/db/init.py", line 43, in init_database
+        conn = get_connection(resolved)
+      File "/app/app/db/conn.py", line 56, in get_connection
+        conn = sqlite3.connect(str(path))
+      sqlite3.OperationalError: unable to open database file
+      ```
+    Root cause:
+      - Dockerfile creates `app` user with `--uid 1000`
+        (Dockerfile:65) and the container runs as that user (USER app,
+        Dockerfile:88).
+      - `scripts/start_mac.sh:62` does `mkdir -p db` on the host, which
+        creates the directory owned by the invoking host user
+        (here uid=1002) with mode 0755.
+      - The bind mount preserves host ownership inside the container,
+        so the `app` (uid=1000) user has no write access and
+        `sqlite3.connect` cannot create `finally.db`.
+    Workaround applied during this smoke test:
+      `chmod 777 /home/hafnium/finally/db` — then `docker restart finally`
+      came up healthy. Not a fix to ship; just unblocked the test.
+    Note: `test/docker-compose.test.yml` uses a Docker-named volume
+    (`finally_test_db:/app/db`) which Docker auto-chowns, which is why
+    Phase 3 never saw this. Only the start_mac.sh / start_windows.ps1
+    bind-mount path is affected.
+  suggested_fix: |
+    In `scripts/start_mac.sh` after `mkdir -p db` (line 62), add a
+    `chown` step — but since the script shouldn't require sudo, the
+    cleanest fix is in the Dockerfile: have the entrypoint (or a small
+    init wrapper) chown `/app/db` to the app user on first start.
+    Equivalently, add an `:Z` / `:rw` mount option workaround or
+    instruct the user to `chmod 0777 db` in the script's stderr
+    warning. Whatever path is chosen, the README and docs in
+    `planning/` should document the requirement so first-time
+    contributors aren't stuck.
+
+- id: B019
+  owner: frontend-engineer
+  severity: minor
+  scenario: "Static asset 404 on every page load"
+  repro: |
+    1. Open `http://localhost:8000/` in any browser.
+    2. Open DevTools → Console / Network tab.
+  expected: |
+    No 404s on the golden path. A `<link rel="icon">` should resolve to a
+    real asset, or no favicon link should be emitted.
+  actual: |
+    `GET /favicon.ico` returns 404. Single console error per session:
+      `Failed to load resource: the server responded with a status of
+       404 (Not Found) @ http://localhost:8000/favicon.ico:0`
+    Functional impact: zero. Cosmetic only — clutters DevTools error
+    panel and could mask real future regressions. Filed for hygiene.
+  suggested_fix: |
+    Add `frontend/public/favicon.ico` (any small icon, even a generic
+    "F" mark matching the header avatar) so Next.js export includes it
+    in `out/`, or remove the implicit favicon link from `app/layout.tsx`.
+```
+
+Out-of-scope observations (NOT bugs; recorded for context):
+- Live LLM latency: `What's my portfolio?` returned in ~2s, `Sell 2 AAPL`
+  returned in ~2s end-to-end including trade settlement. Well within the
+  "1-3s on Cerebras" target from PLAN.md §9.
+- Trade execution via chat works correctly despite B017 — the executor
+  reads cash/positions from the DB independently, so `Sell 2 AAPL`
+  reduced AAPL from 5 to 3 and credited cash $9,050.90 → $9,430.48 at
+  fill price $189.79. Inline TradeAction card rendered as designed.
+- Price flash CSS animation is visible on watchlist rows within seconds
+  of page load — confirms SSE is connected and `PriceCache` is fanning
+  out updates.
+
+Teardown: `bash /home/hafnium/finally/scripts/stop_mac.sh` removed the
+`finally` container; `docker ps --filter name=finally` returns empty.
+The `./db` bind-mount directory and its `finally.db` are preserved.
