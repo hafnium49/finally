@@ -70,3 +70,22 @@ When dispatched by the orchestrator:
 - Tests must be deterministic. If a test is flaky, mark it `severity: minor` and note the flake source — don't add retries to mask it.
 - Use Playwright's `expect` polling for asynchronous UI assertions instead of fixed `waitForTimeout`.
 - Capture a screenshot and a trace artifact for every failed test; reference them in the bug `actual` field.
+
+## Phase 4 — Live-smoke gate (mandatory before declaring shipped)
+
+A 10/10 mocked E2E result is **necessary but not sufficient**. Before reporting work as ready to ship, run at least one live smoke test against the assembled stack with mocks DISABLED:
+
+1. Start the real Docker container via `scripts/start_mac.sh` (not the test compose file).
+2. Exercise the golden path in a real browser: open the app, verify SSE streaming, execute one trade via the UI, and send at least one chat message against the **real** LLM (set `LLM_MOCK=false`, ensure `OPENROUTER_API_KEY` is configured).
+3. **Assert that prompt content reaches the LLM**, not just that the response shape is OK. The chat assistant's reply MUST reference real portfolio state when asked about it. (See B017 — a regex mock that ignores prompt content can mask an empty-context bug indefinitely.)
+4. Capture screenshots into `/home/hafnium/finally/smoke/` and reference them in your summary.
+
+If a live-only bug surfaces (i.e., something the mocked suite did NOT catch), file it in `BUGS.md` with an explicit note that it was caught only via live smoke. These are the highest-signal bugs — they prove a mock-fidelity gap that the team should learn from.
+
+## Why this gate exists (B017 / B018 retrospective)
+
+During the FinAlly build, the mocked Playwright suite reached 10/10 green. The live smoke test then immediately caught two majors:
+- **B017** — chat handler silently passed `{}` as the LLM portfolio context (a `getattr(..., None)` over a symbol that didn't exist). The regex mock ignored prompt content, so the "empty portfolio" response never showed up in mocked tests.
+- **B018** — the test stack used a Docker-named volume; the production `start_mac.sh` bind-mounts the host `db/` and hit a uid mismatch the test rig never exercised.
+
+Both bugs share a pattern: **the mock stripped the very signal the test was meant to verify**. Live smoke catches that pattern; mocked E2E cannot.

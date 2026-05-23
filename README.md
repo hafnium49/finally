@@ -23,7 +23,7 @@ All v1 components specified in `PLAN.md` are now in the repository:
 | Dockerfile / start scripts | Done |
 | E2E Playwright suite | Done |
 
-Test totals: **275/275 backend (pytest)**, **37/37 frontend (vitest)**, **10/10 E2E (Playwright)**.
+Test totals: **279/279 backend (pytest)**, **37/37 frontend (vitest)**, **10/10 E2E (Playwright)**. The golden-path live smoke (Docker + real OpenRouter + browser drive) is also documented in [`planning/SHIPPED.md`](planning/SHIPPED.md).
 
 This is a simulated trading environment with no authentication. It is intended for **local use only** — see the warning in `planning/PLAN.md` §11 before exposing it on a network.
 
@@ -96,7 +96,7 @@ The codebase is organized around the agent-team layout in [`planning/AGENT_TEAM.
 | Module | Owner role | Highlights |
 |---|---|---|
 | `backend/app/market/` | Market Data Engineer | GBM simulator, Massive REST client, shared `PriceCache` with version-counter change detection, SSE generator. |
-| `backend/app/db/` | DB Engineer | `schema.sql` (8 tables), lazy init from FastAPI lifespan, connection helpers, seed data. 26 unit tests. |
+| `backend/app/db/` | DB Engineer | `schema.sql` (8 tables incl. `chat_state` for conversation summary), lazy init from FastAPI lifespan, connection helpers, seed data. 26 unit tests. |
 | `backend/app/portfolio/` | Portfolio Engineer | Per-user `asyncio.Lock` serializing trade execution, position math, 30s portfolio snapshots, 5s tick-history persister with 7-day pruning. Race-tested. |
 | `backend/app/chat/` | LLM Engineer | LiteLLM → OpenRouter (Cerebras) client, structured-output schema, prompt assembly with rolling summary of older turns, action executor, deterministic mock mode. |
 | `backend/app/api/` + `backend/app/main.py` | Backend API Engineer | FastAPI app with lifespan startup, REST + SSE routes per `PLAN.md` §8, error envelope. |

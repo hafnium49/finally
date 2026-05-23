@@ -165,3 +165,48 @@ This block is concatenated into the system prompt assembled by build_system_prom
 ```
 
 The orchestrator pauses Phase 3 to surface this file to the user.
+
+---
+
+## Appendix A — Post-mortem (what actually happened)
+
+This appendix is appended after the build was complete. The plan above is preserved verbatim; this section records the actual execution.
+
+### Iteration log
+
+| Iter | Phase | Action | Outcome |
+|---|---|---|---|
+| 0 | 1 | Dispatch DB Engineer → SCHEMA.md | 8 tables, 4 indexes, 12 seed rows; flagged `actions[]`-vs-NULL storage ambiguity |
+| 0 | 1 | Dispatch Backend API → API_CONTRACT.md | 11 endpoints documented; pinned `actions: []` (never null) on the wire; flagged SSE per-frame map shape ≠ prompt description (kept actual behavior, documented) |
+| 0 | 1 | Dispatch LLM Engineer → LLM_CONTRACT.md | 8 Pydantic models, 7-row mock regex table, `SYSTEM_PROMPT_VOICE` reserved as user slot; flagged 1 new error code (`invalid_quantity`) which orchestrator back-propagated into API_CONTRACT.md |
+| 0 | 2 | Parallel dispatch of 5 builders | DB / LLM / Frontend / DevOps succeeded on first try. Backend API agent rejected by user mid-dispatch; re-dispatched once the other 4 had landed (less to coordinate). Tests at end of Phase 2: 273 backend + 37 frontend |
+| 0 | 3 | Integration Tester first E2E run | **0/10 pass** — all blocked by B001 (frontend mounted Watchlist + ChatPanel twice for responsive layout, breaking Playwright strict-mode locators). Also caught self-owned B002–B004 (test infra hygiene) and noted B005 (sandbox needs `dangerouslyDisableSandbox: true` for docker) |
+| 1 | 3 | Frontend Engineer fix B001 | Single mount + Tailwind `order-*` for responsive reorder. Build + unit tests stayed green |
+| 1 | 3 | Integration Tester iteration 1 | **8/10 pass**. New failure B006 — chat trade execution missing `price_cache` kwarg, HTTP 500 |
+| 2 | 3 | LLM Engineer fix B006 | Threaded `price_cache` via `api/chat.py` → `handle_message` → `executor.apply` → `execute_trade`. 275 backend tests pass |
+| 2 | 3 | Integration Tester iteration 2 | **10/10 pass**. Mocked E2E suite is fully green. Phase 3 complete from the persona's perspective |
+| 3 | 4 | (user-added) Live smoke test with real OpenRouter | **2 majors caught that mocks missed**: B017 (LLM saw empty portfolio context — handler looked up nonexistent symbol) and B018 (uid mismatch on host `db/` bind mount). Also a cosmetic B019 (favicon 404) |
+| 3 | 4 | LLM Engineer fix B017 + DevOps Engineer fix B018 | 279 backend tests pass; live re-smoke confirms chat sees real portfolio data and `start_mac.sh` works without manual chmod |
+
+### Final bug ledger
+
+9 bugs over 4 iteration loops; 8 fixed, 1 deferred (B019 cosmetic favicon). Severity breakdown: 1 blocker (B001), 3 major (B006, B017, B018), 5 minor (B002–B005, B019). All fixes live in `planning/BUGS.md`.
+
+### What worked
+
+- **Disjoint directory ownership.** Five builder agents wrote ~5,000 LOC in parallel with zero merge conflicts. Owning a subtree turned out to be a stronger contract than any code review could enforce.
+- **Frozen contract docs before code.** Phase 1's three docs (`SCHEMA.md`, `API_CONTRACT.md`, `LLM_CONTRACT.md`) let the parallel builders execute against a stable interface. The Backend API Engineer's Phase 1 dispatch caught the SSE per-frame vs. per-event shape mismatch *before* anyone built against the wrong assumption.
+- **Bug-specific re-dispatch.** Routing each bug to its owning agent with ONLY the relevant entry (not the whole BUGS.md) kept each fix tight and avoided scope creep.
+
+### What surprised us
+
+- **Mock fidelity matters more than test count.** A 10/10 green mocked E2E suite hid two majors that a single live smoke test caught in ~5 minutes. The plan should have included a Phase 4 live-smoke gate from the start; it was added retroactively. See `planning/SHIPPED.md` for the lesson.
+- **Auto-commit hooks ran ahead of the orchestrator.** The codex review hook on `Stop` kept committing in-flight work with generic messages ("Refactor code structure for improved readability"), making the commit log noisy. Disabling all hooks for the final stretch produced cleaner commits but lost the per-turn review.
+- **The user-author slot worked.** A single 6-line voice block (`SYSTEM_PROMPT_VOICE`) was the only human-authored code in the build, and it changes the entire feel of the LLM responses. Reserving exactly one high-leverage slot kept the human-in-the-loop step concentrated and useful.
+
+### What we'd do differently
+
+- Add a **Phase 4 live-smoke gate** to the team plan template. The Integration Tester persona is now updated to require it before marking work shipped.
+- For mock-mode tests, **assert on the prompt content reaching the LLM**, not just on the returned action. The chat mock ignored prompt content entirely, which is why B017 slipped through. A stronger pattern: capture the assembled prompt in a fixture and assert key fields are present.
+- For Docker bind mounts, **normalize ownership in the start script**, not in the Dockerfile. B018 cost an iteration because the `USER app` directive was set at build time and didn't match the host user at runtime.
+
