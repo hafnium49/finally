@@ -1,0 +1,44 @@
+# Test stack for Phase 3 E2E Playwright suite.
+#
+# Spins up the FinAlly app image (built from the repo root Dockerfile) with
+# LLM_MOCK=true forced via the `environment:` block (which overrides anything
+# in .env). Tests run from the host against http://localhost:8000.
+#
+# Usage:
+#   docker compose -f test/docker-compose.test.yml up -d --build
+#   curl http://localhost:8000/api/health
+#   docker compose -f test/docker-compose.test.yml down
+
+services:
+  finally:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: finally:test
+    container_name: finally-test
+    ports:
+      - "8000:8000"
+    environment:
+      # Forces deterministic mock LLM responses; required by every E2E spec.
+      LLM_MOCK: "true"
+      # Mock key — never used because LLM_MOCK=true short-circuits the client.
+      OPENROUTER_API_KEY: "mock-not-used"
+      # No Massive key → simulator. The simulator generates ticks every ~500ms
+      # which is fast enough for SSE assertions.
+      MASSIVE_API_KEY: ""
+    volumes:
+      # Use a Docker-managed named volume so each fresh test run starts from a
+      # clean SQLite database (default cash $10k, default 10-ticker watchlist).
+      # The host bind-mounted ./db directory may carry state from prior runs;
+      # we want isolation here.
+      - finally_test_db:/app/db
+    restart: "no"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
+volumes:
+  finally_test_db:

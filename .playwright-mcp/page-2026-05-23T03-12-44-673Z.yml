@@ -1,0 +1,179 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]:
+          - generic [ref=e6]: F
+          - generic [ref=e7]:
+            - generic [ref=e8]: FinAlly
+            - generic [ref=e9]: AI Trading Workstation
+        - generic [ref=e10]:
+          - generic [ref=e11]:
+            - generic [ref=e12]: Portfolio
+            - generic [ref=e13]: $9,999.95
+          - generic [ref=e14]:
+            - generic [ref=e15]: Cash
+            - generic [ref=e16]: $9,049.45
+          - generic [ref=e17]:
+            - generic [ref=e18]: Unrealized P&L
+            - generic [ref=e19]: "-$0.05"
+          - generic [ref=e22]: Live
+    - main [ref=e23]:
+      - region "Watchlist" [ref=e25]:
+        - generic [ref=e26]:
+          - heading "Watchlist" [level=2] [ref=e27]
+          - generic [ref=e28]: 10 symbols
+        - generic [ref=e29]:
+          - textbox "Add ticker" [ref=e30]
+          - button "Add" [disabled] [ref=e31]
+        - generic [ref=e32]:
+          - button "AAPL +0.07% 190.13 Remove AAPL from watchlist" [ref=e221] [cursor=pointer]:
+            - generic [ref=e125]:
+              - generic [ref=e126]: AAPL
+              - generic [ref=e127]: +0.07%
+            - generic [ref=e128]: "190.13"
+            - button "Remove AAPL from watchlist" [ref=e130]: ✕
+          - button "AMZN -0.05% 184.91 Remove AMZN from watchlist" [ref=e222] [cursor=pointer]:
+            - generic [ref=e132]:
+              - generic [ref=e133]: AMZN
+              - generic [ref=e134]: "-0.05%"
+            - generic [ref=e135]: "184.91"
+            - button "Remove AMZN from watchlist" [ref=e137]: ✕
+          - button "GOOGL +0.01% 175.01 Remove GOOGL from watchlist" [ref=e223] [cursor=pointer]:
+            - generic [ref=e139]:
+              - generic [ref=e140]: GOOGL
+              - generic [ref=e141]: +0.01%
+            - generic [ref=e142]: "175.01"
+            - button "Remove GOOGL from watchlist" [ref=e144]: ✕
+          - button "JPM 0.00% 195.00 Remove JPM from watchlist" [ref=e224] [cursor=pointer]:
+            - generic [ref=e146]:
+              - generic [ref=e147]: JPM
+              - generic [ref=e148]: 0.00%
+            - generic [ref=e149]: "195.00"
+            - button "Remove JPM from watchlist" [ref=e151]: ✕
+          - button "META +0.03% 500.17 Remove META from watchlist" [ref=e225] [cursor=pointer]:
+            - generic [ref=e153]:
+              - generic [ref=e154]: META
+              - generic [ref=e155]: +0.03%
+            - generic [ref=e156]: "500.17"
+            - button "Remove META from watchlist" [ref=e158]: ✕
+          - button "MSFT +0.05% 420.23 Remove MSFT from watchlist" [ref=e226] [cursor=pointer]:
+            - generic [ref=e160]:
+              - generic [ref=e161]: MSFT
+              - generic [ref=e162]: +0.05%
+            - generic [ref=e163]: "420.23"
+            - button "Remove MSFT from watchlist" [ref=e165]: ✕
+          - button "NFLX +0.15% 600.90 Remove NFLX from watchlist" [ref=e227] [cursor=pointer]:
+            - generic [ref=e167]:
+              - generic [ref=e168]: NFLX
+              - generic [ref=e169]: +0.15%
+            - generic [ref=e170]: "600.90"
+            - button "Remove NFLX from watchlist" [ref=e172]: ✕
+          - button "NVDA +2.28% 818.27 Remove NVDA from watchlist" [ref=e228] [cursor=pointer]:
+            - generic [ref=e174]:
+              - generic [ref=e175]: NVDA
+              - generic [ref=e176]: +2.28%
+            - generic [ref=e177]: "818.27"
+            - button "Remove NVDA from watchlist" [ref=e179]: ✕
+          - button "TSLA +0.08% 250.20 Remove TSLA from watchlist" [ref=e229] [cursor=pointer]:
+            - generic [ref=e181]:
+              - generic [ref=e182]: TSLA
+              - generic [ref=e183]: +0.08%
+            - generic [ref=e184]: "250.20"
+            - button "Remove TSLA from watchlist" [ref=e186]: ✕
+          - button "V -0.02% 279.95 Remove V from watchlist" [ref=e230] [cursor=pointer]:
+            - generic [ref=e188]:
+              - generic [ref=e189]: V
+              - generic [ref=e190]: "-0.02%"
+            - generic [ref=e191]: "279.95"
+            - button "Remove V from watchlist" [ref=e193]: ✕
+      - generic [ref=e34]:
+        - generic [ref=e35]:
+          - region "Main chart" [ref=e37]:
+            - generic [ref=e38]:
+              - heading "Chart · AAPL" [level=2] [ref=e231]
+              - tablist "Range" [ref=e40]:
+                - tab "1h" [selected] [ref=e41] [cursor=pointer]
+                - tab "6h" [ref=e42] [cursor=pointer]
+                - tab "24h" [ref=e43] [cursor=pointer]
+                - tab "7d" [ref=e44] [cursor=pointer]
+            - table [ref=e48]:
+              - row [ref=e49]:
+                - cell
+                - cell [ref=e50]:
+                  - link "Charting by TradingView" [ref=e54] [cursor=pointer]:
+                    - /url: https://www.tradingview.com/?utm_medium=lwc-link&utm_campaign=lwc-chart&utm_source=localhost/
+                    - img [ref=e55]
+                - cell [ref=e59]
+              - row [ref=e63]:
+                - cell
+                - cell [ref=e64]
+                - cell [ref=e68]
+          - region "Portfolio heatmap" [ref=e73]:
+            - heading "Allocation" [level=2] [ref=e75]
+            - generic [ref=e234]:
+              - img [ref=e235]:
+                - generic [ref=e236]:
+                  - generic [ref=e238]: AAPL
+                  - generic [ref=e239]: "-0.0%"
+              - list [ref=e240]:
+                - listitem [ref=e241]: "AAPL: $950.50 (-0.01%)"
+        - generic [ref=e78]:
+          - region "Portfolio P&L" [ref=e80]:
+            - generic [ref=e81]:
+              - heading "Portfolio Value" [level=2] [ref=e82]
+              - generic [ref=e83]:
+                - button "1h" [ref=e84] [cursor=pointer]
+                - button "6h" [ref=e85] [cursor=pointer]
+                - button "24h" [ref=e86] [cursor=pointer]
+                - button "7d" [ref=e87] [cursor=pointer]
+            - generic [ref=e89]: No snapshots yet
+          - region "Positions" [ref=e91]:
+            - generic [ref=e92]:
+              - heading "Positions" [level=2] [ref=e93]
+              - generic [ref=e94]: 1 open
+            - table [ref=e242]:
+              - rowgroup [ref=e243]:
+                - row "Ticker Qty Avg Cost Last P&L %" [ref=e244]:
+                  - columnheader "Ticker" [ref=e245]
+                  - columnheader "Qty" [ref=e246]
+                  - columnheader "Avg Cost" [ref=e247]
+                  - columnheader "Last" [ref=e248]
+                  - columnheader "P&L" [ref=e249]
+                  - columnheader "%" [ref=e250]
+              - rowgroup [ref=e251]:
+                - row "AAPL 5 190.11 190.13 $0.10 +0.01%" [ref=e252] [cursor=pointer]:
+                  - cell "AAPL" [ref=e253]
+                  - cell "5" [ref=e254]
+                  - cell "190.11" [ref=e255]
+                  - cell "190.13" [ref=e256]
+                  - cell "$0.10" [ref=e257]
+                  - cell "+0.01%" [ref=e258]
+        - region "Trade" [ref=e97]:
+          - generic [ref=e98]:
+            - heading "Trade" [level=2] [ref=e99]
+            - generic [ref=e100]: market · instant fill
+          - generic [ref=e101]:
+            - textbox "Ticker" [ref=e102]:
+              - /placeholder: TICKER
+              - text: AAPL
+            - textbox "Quantity" [ref=e103]:
+              - /placeholder: QTY
+            - button "Buy" [ref=e104] [cursor=pointer]
+            - button "Sell" [ref=e105] [cursor=pointer]
+            - generic [ref=e259]: Bought 5 AAPL @ $190.11
+      - complementary "AI chat" [ref=e107]:
+        - generic [ref=e108]:
+          - heading "FinAlly Assistant" [level=2] [ref=e111]
+          - button "Hide chat panel" [ref=e112] [cursor=pointer]: —
+        - generic [ref=e114]:
+          - paragraph [ref=e115]: Ask FinAlly about your portfolio, request a trade, or manage your watchlist. Trades execute automatically.
+          - generic [ref=e116]:
+            - button "What's my portfolio?" [ref=e117] [cursor=pointer]
+            - button "Buy 5 AAPL" [ref=e118] [cursor=pointer]
+            - button "Add PYPL to watchlist" [ref=e119] [cursor=pointer]
+        - generic [ref=e120]:
+          - textbox "Chat input" [ref=e121]:
+            - /placeholder: Ask FinAlly…
+          - button "Send" [disabled] [ref=e122]
+  - alert [ref=e123]

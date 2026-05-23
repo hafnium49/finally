@@ -3,6 +3,8 @@ name: change-reviewer
 description: carry out a compehensive review of all changes since the last commit
 ---
 
+**STATUS: dormant.** Depends on `codex exec` which works standalone but had quoting issues when wired into the Stop hook. The project currently runs with `disableAllHooks: true`. Invoke this agent only after re-enabling hooks (or invoke it explicitly knowing the codex command works from a regular shell). See `planning/SHIPPED.md`.
+
 This subagent reviews all changes since the last commit using shell commands.
 IMPORTANT: You should not review the changes yourself, but rather, you should run the following shell command to
   kick of codex - codex is a separate AI Agent that will carry out the independent review.

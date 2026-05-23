@@ -1,0 +1,45 @@
+# Build outputs and dependency caches — never want these in the build context.
+**/node_modules
+**/.next
+**/out
+**/.venv
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+**/.coverage
+**/htmlcov
+**/dist
+**/build
+
+# Runtime data and secrets — must never enter the image.
+db/
+.env
+.env.*
+!.env.example
+
+# VCS, planning docs, tests, and IDE/agent metadata not needed at runtime.
+.git/
+.gitignore
+.gitattributes
+planning/
+test/
+tests/
+.claude/
+.github/
+.vscode/
+.idea/
+
+# Top-level repo docs that don't need to ship inside the image.
+README.md
+LICENSE
+code-review-*.md
+independent-reviewer/
+tmp/
+
+# OS junk
+.DS_Store
+Thumbs.db

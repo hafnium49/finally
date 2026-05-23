@@ -1,25 +1,14 @@
 {
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash",
-            "args": [
-              "-c",
-              "codex exec \"Review changes since last commit and write results to a file named planning/review-$(date +%Y%m%d-%H%M%S).md\" </dev/null >/tmp/claude/codex-stop.log 2>&1; exit 0"
-            ],
-            "async": true
-          }
-        ]
-      }
-    ]
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
   },
+  "disableAllHooks": true,
   "enabledPlugins": {
     "frontend-design@claude-plugins-official": true,
     "context7@claude-plugins-official": true,
     "playwright@claude-plugins-official": true,
-    "independent-reviewer@ed-tools": true
-  }
+    "independent-reviewer@ed-tools": false
+  },
+  "teammateMode": "in-process"
 }
