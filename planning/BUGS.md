@@ -425,6 +425,67 @@ the required `price_cache` argument. Filed as B006.
     integration boundary is covered going forward — the existing chat
     handler tests pass because they stub `trade_fn` and never hit the
     real wiring.
-  iteration: 1
-  fixed_in_commit: null
+  iteration: 2
+  fixed_in_commit: "496a6cb"
+  # ITERATION 2 STATUS: FIXED. Resolution implemented across two commits:
+  #   2ebdbc9 — `backend/app/api/chat.py` now resolves the live PriceCache via
+  #             `get_price_cache(request)` and threads it through
+  #             `handle_message(...)`; `backend/app/chat/handler.py` accepts a
+  #             `price_cache` kwarg and forwards it to `executor.apply`;
+  #             `backend/app/chat/executor.py` calls
+  #             `execute_trade(..., price_cache=price_cache)` instead of dropping
+  #             the kwarg.
+  #   496a6cb — Compatibility shim: when `handle_message` is invoked without a
+  #             `price_cache` (legacy callers / tests), it resolves the
+  #             application-wide cache so the executor never sees `None`. Adds
+  #             2 regression tests covering both the wired and legacy paths.
+  # Verification: full Playwright suite (10 tests across 8 spec files) ran
+  # green in 11.0s from a freshly-recreated `finally_test_db` volume on the
+  # `finally:test` image built from HEAD = commit 496a6cb. The two specs
+  # previously broken by B006 — `07-ai-chat-mock 'Buy 2 MSFT'` and
+  # `07-ai-chat-mock 'buy 9999 TSLA'` — now pass.
 ```
+
+---
+
+## Iteration 2 — Phase 3 re-run after B006 fix (chat executor price_cache wiring)
+
+Stack info captured at filing time:
+- Docker image `finally:test` rebuilt successfully from commit `496a6cb`
+  (`docker build -t finally:test /home/hafnium/finally`). The backend layer
+  rebuilt because `backend/app/chat/*.py` and `backend/app/api/chat.py`
+  changed; frontend layer cached.
+- Stack started via `docker compose -f /home/hafnium/finally/test/docker-compose.test.yml up -d`
+  with a freshly-recreated `finally_test_db` volume (pre-flight teardown via
+  `test/run-e2e.sh` ran `down -v` before bringing the stack up).
+- `/api/health` returned `{"status":"ok","db":"ok","market":"simulator"}`
+  after 3 polls (~6s).
+- Playwright 1.49 with chromium-1223 from `~/.cache/ms-playwright/`.
+- Suite run: `bash /home/hafnium/finally/test/run-e2e.sh` (which wraps
+  `npx playwright test --reporter=list`).
+
+Per-spec results (10 tests in 8 spec files):
+
+| Spec file                          | Tests | Pass | Fail |
+|------------------------------------|------:|-----:|-----:|
+| 01-fresh-start.spec.ts             |   1   |   1  |   0  |
+| 02-watchlist-crud.spec.ts          |   1   |   1  |   0  |
+| 03-buy-shares.spec.ts              |   1   |   1  |   0  |
+| 04-sell-shares.spec.ts             |   1   |   1  |   0  |
+| 05-insufficient-cash.spec.ts       |   1   |   1  |   0  |
+| 06-portfolio-viz.spec.ts           |   1   |   1  |   0  |
+| 07-ai-chat-mock.spec.ts            |   3   |   3  |   0  |
+| 08-sse-resilience.spec.ts          |   1   |   1  |   0  |
+| **Total**                          | **10**| **10**| **0**|
+
+Total run time: 11.0s.
+
+Result: **SUITE GREEN.** No new bugs filed this iteration. All previously
+filed defects (B001, B002, B003, B004, B006) have `fixed_in_commit`
+populated; B005 remains an informational note about sandbox configuration
+(no application code involved).
+
+Teardown verification: `docker compose ... down -v` ran via the EXIT trap;
+`docker volume ls | grep finally_test_db` shows no leftover volume and the
+`finally-test` container is gone.
+
