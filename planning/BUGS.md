@@ -559,6 +559,15 @@ Stack info captured at filing time:
           augment with watchlist prices from `PriceCache`.
     Option (a) is the smaller change and matches the existing defensive
     handler design.
+  iteration: 3
+  fixed_in_commit: "4082ce8"
+  fix_note: |
+    Applied option (a). Added get_portfolio_context(price_cache, user_id)
+    in backend/app/portfolio/positions.py, re-exported from
+    backend/app/portfolio/__init__.py. Replaced the silent getattr in
+    backend/app/chat/handler.py with a direct import. Backend tests
+    275 -> 279 (+4 regression tests). Verified live: chat now responds
+    with real position data instead of "empty".
 
 - id: B018
   owner: devops-engineer
@@ -608,6 +617,13 @@ Stack info captured at filing time:
     warning. Whatever path is chosen, the README and docs in
     `planning/` should document the requirement so first-time
     contributors aren't stuck.
+  iteration: 3
+  fixed_in_commit: "6f54251"
+  fix_note: |
+    Applied chmod-777 path in scripts/start_mac.sh (4-line rationale
+    comment inline). Mirrored in scripts/start_windows.ps1 via icacls.
+    Verified by smoke-tester: rm -rf db && bash scripts/start_mac.sh
+    brings the container up healthy in ~5s with no manual intervention.
 
 - id: B019
   owner: frontend-engineer
