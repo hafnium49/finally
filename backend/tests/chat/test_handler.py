@@ -175,6 +175,61 @@ async def test_history_is_loaded_into_prompt(
 
 
 @pytest.mark.asyncio
+async def test_handler_passes_real_portfolio_context_to_prompt(
+    chat_db_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression for B017: the handler must wire real portfolio context into the prompt.
+
+    Seeds a position via the real ``execute_trade`` path, then asks
+    ``handle_message`` "what's my portfolio?". The prompt builder is
+    monkeypatched so we can inspect the ``portfolio_ctx`` argument it
+    receives — proving the context reached the prompt, not just the
+    response. The mock LLM is used (``LLM_MOCK=true`` from conftest).
+    """
+    from app.market import PriceCache
+    from app.portfolio import execute_trade
+
+    # Live cache: seed prices and buy 3 AAPL so a position exists.
+    price_cache = PriceCache()
+    price_cache.update("AAPL", 192.00)
+    result = await execute_trade("AAPL", "buy", 3.0, price_cache)
+    assert result.position_quantity == 3.0
+
+    captured: dict[str, Any] = {}
+    original_build = chat_handler.build_system_prompt
+
+    def recording_build(portfolio_ctx, summary, verbatim_history):  # type: ignore[no-untyped-def]
+        captured["portfolio_ctx"] = portfolio_ctx
+        captured["summary"] = summary
+        captured["verbatim_history"] = list(verbatim_history)
+        return original_build(portfolio_ctx, summary, verbatim_history)
+
+    monkeypatch.setattr(chat_handler, "build_system_prompt", recording_build)
+
+    response = await handle_message(
+        "what's my portfolio?", price_cache=price_cache
+    )
+
+    # The mock dispatcher answers something; we don't care exactly what.
+    assert response.message
+
+    ctx = captured["portfolio_ctx"]
+    assert isinstance(ctx, dict)
+    assert ctx, "portfolio context was empty — B017 regression"
+
+    # The new position must be visible to the LLM.
+    tickers = {p["ticker"] for p in ctx["positions"]}
+    assert "AAPL" in tickers, f"AAPL position missing from context: {ctx}"
+    aapl = next(p for p in ctx["positions"] if p["ticker"] == "AAPL")
+    assert aapl["quantity"] == 3.0
+    assert aapl["current_price"] == 192.00
+
+    # Cash decreased; total_value approximately preserved.
+    assert ctx["cash_balance"] == pytest.approx(10000.0 - 3 * 192.00)
+
+
+@pytest.mark.asyncio
 async def test_malformed_llm_response_returns_fallback(
     chat_db_path: Path,
     monkeypatch: pytest.MonkeyPatch,

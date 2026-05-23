@@ -15,6 +15,7 @@ Typed trade exceptions:
 
 from .positions import (
     compute_portfolio,
+    get_portfolio_context,
     position_unrealized,
     update_position_buy,
     update_position_sell,
@@ -47,6 +48,7 @@ __all__ = [
     "compute_portfolio",
     "current_portfolio",
     "execute_trade",
+    "get_portfolio_context",
     "position_unrealized",
     "prune_old_ticks",
     "pruner_loop",

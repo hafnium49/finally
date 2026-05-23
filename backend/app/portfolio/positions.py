@@ -4,14 +4,22 @@ These functions are intentionally pure (no DB, no asyncio, no globals) so they
 are trivial to unit-test. The DB-bound trade orchestration in :mod:`trade`
 calls into these to compute new average cost / quantity values, then writes
 the result.
+
+``get_portfolio_context`` is the one exception — it reads the DB and pulls
+live prices from the cache so the chat handler can hand a fully-resolved
+portfolio + watchlist snapshot to the LLM prompt.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+import logging
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from app.market import PriceCache
+
+
+_logger = logging.getLogger(__name__)
 
 
 def update_position_buy(
@@ -124,4 +132,75 @@ def compute_portfolio(
         "total_value": round(cash_balance + total_position_value, 4),
         "unrealized_pnl": round(total_unrealized, 4),
         "positions": rows,
+    }
+
+
+def get_portfolio_context(
+    price_cache: "PriceCache", user_id: str = "default"
+) -> dict[str, Any]:
+    """Build the portfolio snapshot the chat handler hands to the LLM.
+
+    Combines the ``GET /api/portfolio`` body (cash, positions, P&L) with the
+    user's current watchlist hydrated against the live ``PriceCache`` — so
+    the model sees both held positions and tickers the user is tracking.
+
+    Returns ``{}`` on any DB/cache failure (logged at warning) so a chat
+    request never crashes because portfolio context could not be assembled.
+    The chat handler treats ``{}`` as "no context available."
+    """
+    from app.db import connection  # local import to avoid circulars
+
+    try:
+        with connection() as conn:
+            cash_row = conn.execute(
+                "SELECT cash_balance FROM users_profile WHERE id = ?",
+                (user_id,),
+            ).fetchone()
+            cash_balance = float(cash_row["cash_balance"]) if cash_row else 0.0
+            pos_rows = conn.execute(
+                "SELECT ticker, quantity, avg_cost FROM positions "
+                "WHERE user_id = ? ORDER BY updated_at DESC",
+                (user_id,),
+            ).fetchall()
+            positions = [dict(r) for r in pos_rows]
+            watch_rows = conn.execute(
+                "SELECT ticker FROM watchlist WHERE user_id = ? "
+                "ORDER BY added_at ASC, ticker ASC",
+                (user_id,),
+            ).fetchall()
+            watch_tickers = [row["ticker"] for row in watch_rows]
+    except Exception:
+        _logger.warning(
+            "get_portfolio_context: DB read failed for user_id=%s",
+            user_id,
+            exc_info=True,
+        )
+        return {}
+
+    portfolio = compute_portfolio(cash_balance, positions, price_cache)
+
+    watchlist: list[dict[str, Any]] = []
+    for ticker in watch_tickers:
+        current_price = price_cache.get_price(ticker)
+        anchor = price_cache.get_session_anchor(ticker)
+        if current_price is None or anchor is None:
+            change_pct: Optional[float] = None
+        elif anchor == 0:
+            change_pct = 0.0
+        else:
+            change_pct = round((current_price - anchor) / anchor * 100, 4)
+        watchlist.append(
+            {
+                "ticker": ticker,
+                "price": current_price,
+                "change_pct": change_pct,
+            }
+        )
+
+    return {
+        "cash_balance": portfolio["cash_balance"],
+        "total_value": portfolio["total_value"],
+        "unrealized_pnl": portfolio["unrealized_pnl"],
+        "positions": portfolio["positions"],
+        "watchlist": watchlist,
     }

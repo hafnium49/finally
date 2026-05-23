@@ -49,23 +49,33 @@ def _new_uuid() -> str:
 # ---------------------------------------------------------------------------
 
 
-def _load_portfolio_context(user_id: str) -> dict[str, Any]:
+def _load_portfolio_context(
+    user_id: str, price_cache: Optional[Any]
+) -> dict[str, Any]:
     """Return the snapshot dict for the prompt, or ``{}`` if loading fails.
 
-    The portfolio module is owned by a different subagent and may not be
-    importable yet. We swallow ImportError and any AttributeError from a
-    missing public name, and log everything else so a real bug doesn't go
-    silent.
+    Imports :func:`app.portfolio.get_portfolio_context` directly — the
+    earlier ``getattr`` lookup silently returned ``None`` when the symbol
+    did not exist, which let the LLM see an empty context for users who
+    actually held positions (defect B017). Any unexpected failure during
+    context load (e.g., DB not initialized in a stripped-down test) is
+    logged and downgraded to an empty dict so chat still responds.
+
+    ``price_cache`` may be ``None`` when the handler is called without one
+    (e.g., a fallback path in tests). In that case we skip context entirely;
+    ``compute_portfolio`` requires the cache for per-position pricing.
     """
-    try:
-        from app import portfolio  # type: ignore[import-not-found]
-    except ImportError:
+    if price_cache is None:
         return {}
     try:
-        loader = getattr(portfolio, "get_portfolio_context", None)
-        if loader is None:
-            return {}
-        ctx = loader(user_id=user_id)
+        from app.portfolio import get_portfolio_context
+    except ImportError:
+        _logger.warning(
+            "Portfolio module unavailable; chat prompt will run with empty context"
+        )
+        return {}
+    try:
+        ctx = get_portfolio_context(price_cache, user_id=user_id)
         if isinstance(ctx, Mapping):
             return dict(ctx)
         return {}
@@ -244,7 +254,7 @@ async def handle_message(
     with connection(db_path) as conn:
         history = _load_history(conn, user_id)
         summary = _load_summary(conn, user_id)
-    portfolio_ctx = _load_portfolio_context(user_id)
+    portfolio_ctx = _load_portfolio_context(user_id, price_cache)
 
     # The new user turn is included in the verbatim history slot so the
     # model sees it in-context (LLM_CONTRACT.md §2.4 + §2.1 slot semantics).
