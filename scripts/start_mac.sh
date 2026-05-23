@@ -60,6 +60,12 @@ fi
 
 # Ensure the bind-mount target exists on the host.
 mkdir -p db
+# The container runs as the in-image `app` user (uid 1000). When the host user
+# invoking this script has a different uid, the bind-mounted `./db` would be
+# unwritable inside the container and SQLite open would fail at startup.
+# Loosening the mode is the simplest portable fix; this is a local-only
+# sandbox (see PLAN.md §11 warning block), so 0777 is acceptable here.
+chmod 0777 db
 
 # Build the image if missing, or if --build was requested.
 if [ "${FORCE_BUILD}" -eq 1 ] || ! docker image inspect "${IMAGE}" >/dev/null 2>&1; then

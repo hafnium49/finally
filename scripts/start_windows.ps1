@@ -41,6 +41,13 @@ if (Test-Path .env) {
 if (-not (Test-Path db)) {
     New-Item -ItemType Directory -Path db | Out-Null
 }
+# The container runs as the in-image `app` user (uid 1000). Docker Desktop on
+# Windows generally relays bind-mount writes through its VM regardless of host
+# ACLs, but we grant "Everyone" full control here as a belt-and-braces measure
+# to match the chmod 0777 in start_mac.sh. This is a local-only sandbox
+# (see PLAN.md §11 warning block). Failures are non-fatal (e.g., ACLs already
+# permissive or filesystem doesn't support icacls).
+& icacls db /grant 'Everyone:(OI)(CI)F' /T *> $null
 
 # Build the image if missing, or if -Build was requested.
 $imageExists = $false
